@@ -6,6 +6,7 @@ mod bookmarks;
 mod cookies;
 mod extensions;
 mod fingerprints;
+mod gpu_caps;
 mod launch;
 mod mcp_setup;
 mod migrate;
@@ -17,6 +18,13 @@ mod runtime;
 mod settings;
 mod store;
 mod sync_bus;
+mod automation;
+mod cdp;
+mod requests;
+mod db;
+mod modguard;
+mod runner;
+mod wasm;
 mod trash;
 
 use serde_json::Value;
@@ -40,7 +48,7 @@ pub fn main_window() -> Option<tauri::WebviewWindow> {
 /// profile/proxy created or removed through the automation API or MCP, which
 /// writes straight to disk without the React state ever knowing.  The view
 /// listens for `store-changed` and reloads, so the new items appear without an
-/// app restart.  `kind` ("profiles" | "proxies") is informational; the UI
+/// app restart.  `kind` ("profiles" | "proxies" | "automation") is informational; the UI
 /// reloads both lists regardless.  No-op when headless (no window).
 pub fn notify_store_changed(kind: &str) {
     use tauri::Emitter;
@@ -300,7 +308,7 @@ pub(crate) fn randomize_hardware(payload: &mut serde_json::Map<String, Value>) {
 
 /// Clamp profile.screen to the real display when it's smaller than the FP claim.
 /// On Win/Linux always use the real display (presets rarely match user monitors).
-fn clamp_screen_to_real_display(
+pub fn clamp_screen_to_real_display(
     window: &tauri::WebviewWindow,
     payload: &mut serde_json::Map<String, Value>,
 ) {
@@ -364,8 +372,12 @@ fn clamp_screen_to_real_display(
         scr_mut.insert("avail_height".into(), Value::from(avail_h));
         scr_mut.insert("device_pixel_ratio".into(), Value::from(scale));
     }
-    // Keep window inside the avail area.
-    if let Some(win) = payload.get_mut("window").and_then(|v| v.as_object_mut()) {
+    // Keep window inside the avail area; a profile with no window block gets one,
+    // otherwise the browser falls back to Chromium's own small default size.
+    let win_slot = payload
+        .entry("window")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    if let Some(win) = win_slot.as_object_mut() {
         win.insert("outer_width".into(), Value::from(avail_w));
         win.insert("inner_width".into(), Value::from(avail_w));
         let outer_h = (avail_h - 1).max(1);
@@ -446,6 +458,8 @@ pub fn save_profile_core(
         total_runtime_ms: stored.meta.total_runtime_ms,
         color: stored.meta.color,
         extensions: stored.meta.extensions,
+        mobile: profile::claims_mobile(&stored.config),
+        android_media: false,
     })
 }
 
@@ -453,6 +467,426 @@ pub fn save_profile_core(
 #[tauri::command]
 fn profile_delete(id: String) -> Result<(), String> {
     trash::move_to_trash(&id).map(|_| ()).map_err(|e| e.to_string())
+}
+
+// ---- Automation ----
+
+/// Whether this build has the automation section compiled in. Always present,
+/// so the UI can ask before it renders anything.
+#[tauri::command]
+fn automation_available() -> bool {
+    cfg!(feature = "automation")
+}
+
+#[tauri::command]
+fn automation_list() -> Result<Vec<automation::Project>, String> {
+    automation::list().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn automation_create(name: String) -> Result<automation::Project, String> {
+    automation::create(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn automation_save(project: automation::Project) -> Result<automation::Project, String> {
+    automation::save(project).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn automation_delete(id: String) -> Result<(), String> {
+    automation::delete(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn automation_duplicate(id: String) -> Result<automation::Project, String> {
+    automation::duplicate(&id).map_err(|e| e.to_string())
+}
+
+/// Starts a profile WITH automation on, and attaches. The ordinary UI launch
+/// deliberately leaves CDP off, so the studio needs its own door.
+#[tauri::command]
+async fn automation_launch(app: tauri::AppHandle, profile_id: String) -> Result<u32, String> {
+    #[cfg(feature = "automation")]
+    {
+        if migrate::in_progress() {
+            return Err("profiles are being moved — try again when that finishes".into());
+        }
+        // CDP cannot be turned on for a live process, so attaching to one opened
+        // without it would give a focused window with no frames and no control.
+        if is_profile_running(&profile_id)
+            && process::Tracker::shared().cdp(&profile_id).is_none()
+        {
+            return Err(
+                "This profile is already open without debugging. Close it, then open it here."
+                    .into(),
+            );
+        }
+        let b = bus().await?;
+        // (enable_cdp, headless) — the studio needs a visible window with CDP on.
+        let out = launch::launch_profile_synced(&profile_id, true, false, None, b.port, &b.token)
+            .await
+            .map_err(|e| e.to_string())?;
+        automation_attach(app, profile_id).await?;
+        return Ok(out.pid);
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = (app, profile_id);
+        Err("automation is not compiled into this build".into())
+    }
+}
+
+/// Attaches to a profile already running with CDP on; frames arrive as
+/// `automation:frame`. Only bodies are gated — Tauri's command list takes no `#[cfg]`.
+#[tauri::command]
+async fn automation_attach(app: tauri::AppHandle, profile_id: String) -> Result<(), String> {
+    #[cfg(feature = "automation")]
+    {
+        use tauri::Emitter;
+        let info = process::Tracker::shared()
+            .cdp(&profile_id)
+            .ok_or_else(|| "that profile is not running with automation on".to_string())?;
+        let handle = app.clone();
+        let nav_handle = app.clone();
+        let ev_handle = app.clone();
+        let ev_profile = profile_id.clone();
+        return cdp::attach_with(
+            profile_id,
+            info.web_socket_debugger_url,
+            move |frame| {
+                let _ = handle.emit("automation:frame", frame);
+            },
+            move |profile_id, url| {
+                let _ = nav_handle.emit(
+                    "automation:navigated",
+                    serde_json::json!({ "profile_id": profile_id, "url": url }),
+                );
+            },
+            // Surface the interceptor's paused-request events to the studio so
+            // it can answer them with Traffic.resolve.
+            move |method, params| {
+                let topic = match method.as_str() {
+                    "Traffic.requestPaused" => "automation:traffic-paused",
+                    "Traffic.requestObserved" => "automation:traffic-observed",
+                    _ => return,
+                };
+                let _ = ev_handle.emit(
+                    topic,
+                    serde_json::json!({ "profile_id": ev_profile, "params": params }),
+                );
+            },
+        )
+        .await
+        .map_err(|e| e.to_string());
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = (app, profile_id);
+        Err("automation is not compiled into this build".into())
+    }
+}
+
+#[tauri::command]
+fn automation_detach(profile_id: String) {
+    #[cfg(feature = "automation")]
+    cdp::detach(&profile_id);
+    #[cfg(not(feature = "automation"))]
+    let _ = profile_id;
+}
+
+#[tauri::command]
+fn automation_attached(profile_id: String) -> bool {
+    #[cfg(feature = "automation")]
+    return cdp::is_attached(&profile_id);
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = profile_id;
+        false
+    }
+}
+
+#[tauri::command]
+async fn automation_screencast(
+    profile_id: String,
+    on: bool,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    #[cfg(feature = "automation")]
+    {
+        return if on {
+            cdp::start_screencast(&profile_id, width, height).await
+        } else {
+            cdp::stop_screencast(&profile_id).await
+        }
+        .map_err(|e| e.to_string());
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = (profile_id, on, width, height);
+        Err("automation is not compiled into this build".into())
+    }
+}
+
+/// What this desktop lets the launcher do with windows: browsers still place
+/// themselves over X11/XWayland, but under Wayland our own panels cannot.
+#[tauri::command]
+fn automation_display() -> serde_json::Value {
+    #[cfg(target_os = "linux")]
+    {
+        let wayland = std::env::var("WAYLAND_DISPLAY").is_ok()
+            || std::env::var("XDG_SESSION_TYPE")
+                .map(|v| v.eq_ignore_ascii_case("wayland"))
+                .unwrap_or(false);
+        // The same condition launch.rs pins --ozone-platform=x11 on.
+        let x_display = std::env::var_os("DISPLAY").is_some();
+        let browser_placement = !wayland || x_display;
+        let panels = !wayland;
+        let note = if !browser_placement {
+            "This is a Wayland session with no X display for the browser to fall back to, so it \
+             runs as a Wayland window: it cannot place itself, arranging browsers does nothing, \
+             and the launcher cannot keep the Fleet window above the others either. Install \
+             XWayland, or log in with an Xorg session. Recording and running still work — the \
+             live view comes over the debugging connection, not off the screen."
+        } else if !panels {
+            "This is a Wayland session. Browsers still arrange themselves, because they run \
+             through XWayland, but the launcher cannot keep its own Fleet window above the \
+             others or place it — a Wayland application is not allowed to. Log in with an Xorg \
+             session if you need that."
+        } else {
+            ""
+        };
+        return serde_json::json!({
+            "server": if wayland { "wayland" } else { "x11" },
+            "limited": !browser_placement || !panels,
+            "note": note,
+            "browser_placement": browser_placement,
+            "panels": panels,
+        });
+    }
+    #[cfg(not(target_os = "linux"))]
+    serde_json::json!({
+        "server": "native",
+        "limited": false,
+        "note": "",
+        "browser_placement": true,
+        "panels": true,
+    })
+}
+
+// ---- Modules ----
+
+/// Every TLS/HTTP2 fingerprint the request steps can wear. Read off the
+/// library, so it stays right when the library is updated.
+#[tauri::command]
+fn automation_tls_fingerprints() -> Vec<String> {
+    #[cfg(feature = "automation")]
+    return requests::fingerprints();
+    #[cfg(not(feature = "automation"))]
+    Vec::new()
+}
+
+#[tauri::command]
+fn automation_modules() -> Result<Vec<serde_json::Value>, String> {
+    #[cfg(feature = "automation")]
+    return wasm::list()
+        .map(|v| v.into_iter().filter_map(|m| serde_json::to_value(m).ok()).collect())
+        .map_err(|e| e.to_string());
+    #[cfg(not(feature = "automation"))]
+    Ok(Vec::new())
+}
+
+#[tauri::command]
+fn automation_module_install(path: String) -> Result<serde_json::Value, String> {
+    #[cfg(feature = "automation")]
+    return wasm::install(&path)
+        .map(|m| serde_json::to_value(m).unwrap_or_default())
+        .map_err(|e| e.to_string());
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = path;
+        Err("automation is not compiled into this build".into())
+    }
+}
+
+#[tauri::command]
+fn automation_module_remove(id: String) -> Result<(), String> {
+    #[cfg(feature = "automation")]
+    return wasm::remove(&id).map_err(|e| e.to_string());
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = id;
+        Ok(())
+    }
+}
+
+
+/// What a module asks to be allowed to call, and what it was allowed.
+#[tauri::command]
+fn automation_module_permissions(id: String) -> Result<serde_json::Value, String> {
+    #[cfg(feature = "automation")]
+    return Ok(serde_json::json!({
+        "asks": wasm::manifest_of(&id),
+        "granted": wasm::grant_for(&id),
+    }));
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = id;
+        Err("automation is not compiled into this build".into())
+    }
+}
+
+/// Records what the operator allowed this module to call.
+#[tauri::command]
+fn automation_module_grant(
+    id: String,
+    modules: Vec<String>,
+    flows: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(feature = "automation")]
+    return wasm::set_grant(&id, modules, flows)
+        .map(|g| serde_json::to_value(g).unwrap_or_default())
+        .map_err(|e| e.to_string());
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = (id, modules, flows);
+        Err("automation is not compiled into this build".into())
+    }
+}
+
+#[tauri::command]
+fn automation_modules_dir() -> Result<String, String> {
+    #[cfg(feature = "automation")]
+    return wasm::modules_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| e.to_string());
+    #[cfg(not(feature = "automation"))]
+    Err("automation is not compiled into this build".into())
+}
+
+// ---- Export / import ----
+
+#[tauri::command]
+fn automation_export(project_id: String) -> Result<serde_json::Value, String> {
+    automation::export(&project_id)
+        .map(|b| serde_json::to_value(b).unwrap_or_default())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn automation_import(bundle: serde_json::Value) -> Result<automation::Project, String> {
+    let parsed: automation::Bundle =
+        serde_json::from_value(bundle).map_err(|e| format!("that is not a project bundle: {e}"))?;
+    automation::import(parsed).map_err(|e| e.to_string())
+}
+
+/// Starts the project. Answers as soon as the run is under way; progress is
+/// read back with `automation_run_status`.
+#[tauri::command]
+async fn automation_run(project_id: String) -> Result<(), String> {
+    #[cfg(feature = "automation")]
+    {
+        return runner::start(&project_id).await.map_err(|e| e.to_string());
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = project_id;
+        Err("automation is not compiled into this build".into())
+    }
+}
+
+#[tauri::command]
+fn automation_run_stop(project_id: String) {
+    #[cfg(feature = "automation")]
+    runner::stop(&project_id);
+    #[cfg(not(feature = "automation"))]
+    let _ = project_id;
+}
+
+#[tauri::command]
+fn automation_run_status(project_id: String) -> Option<serde_json::Value> {
+    #[cfg(feature = "automation")]
+    return runner::status(&project_id).and_then(|s| serde_json::to_value(s).ok());
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = project_id;
+        None
+    }
+}
+
+/// Every run going right now — what the fleet window shows.
+#[tauri::command]
+fn automation_fleet() -> Vec<serde_json::Value> {
+    #[cfg(feature = "automation")]
+    return runner::all()
+        .into_iter()
+        .filter_map(|s| serde_json::to_value(s).ok())
+        .collect();
+    #[cfg(not(feature = "automation"))]
+    Vec::new()
+}
+
+/// Opens (or re-focuses) the fleet window: one row per browser in a run.
+#[tauri::command]
+fn automation_fleet_window(app: tauri::AppHandle) {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+    if let Some(w) = app.get_webview_window("fleet") {
+        let _ = w.set_focus();
+        return;
+    }
+    let built = WebviewWindowBuilder::new(&app, "fleet", WebviewUrl::App("index.html#/?fleet=1".into()))
+        .title("ShardX Fleet")
+        .inner_size(460.0, 420.0)
+        .min_inner_size(360.0, 240.0)
+        .always_on_top(true)
+        .build();
+    if let Err(e) = built {
+        eprintln!("[launcher] fleet window unavailable: {e}");
+    }
+}
+
+/// Resolves the element under a viewport point, natively. A recorded step stores
+/// what this returns, so replay finds the element again at a different window size.
+#[tauri::command]
+async fn automation_pick(
+    profile_id: String,
+    x: f64,
+    y: f64,
+) -> Result<serde_json::Value, String> {
+    #[cfg(feature = "automation")]
+    {
+        return cdp::pick_element(&profile_id, x, y)
+            .await
+            .map(|p| serde_json::to_value(p).unwrap_or_default())
+            .map_err(|e| e.to_string());
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = (profile_id, x, y);
+        Err("automation is not compiled into this build".into())
+    }
+}
+
+/// One raw CDP call against the attached page. The studio drives every page
+/// action through the Motion domain, and this is the only door.
+#[tauri::command]
+async fn automation_call(
+    profile_id: String,
+    method: String,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    #[cfg(feature = "automation")]
+    {
+        return cdp::page_call(&profile_id, &method, params)
+            .await
+            .map_err(|e| e.to_string());
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = (profile_id, method, params);
+        Err("automation is not compiled into this build".into())
+    }
 }
 
 // ---- Trash ----
@@ -797,6 +1231,29 @@ fn fingerprint_list() -> Result<Vec<fingerprints::LibraryEntry>, String> {
     fingerprints::list_all().map_err(|e| e.to_string())
 }
 
+/// What this machine's GPU can actually do. Cached; `force` re-asks the engine.
+/// Slow on the first call — it starts the engine off-screen — so the UI asks once.
+#[tauri::command]
+async fn gpu_caps(force: bool) -> Result<gpu_caps::HostGlCaps, String> {
+    gpu_caps::probe(force).await.map_err(|e| e.to_string())
+}
+
+/// Whether the machine can wear each library fingerprint, keyed by id. Kept out of
+/// fingerprint_list() so that stays fast; an empty map means "not known", not "all fine".
+#[tauri::command]
+async fn gpu_caps_compat(
+) -> Result<std::collections::HashMap<String, gpu_caps::Compat>, String> {
+    let caps = match gpu_caps::probe(false).await {
+        Ok(c) => c,
+        Err(_) => return Ok(Default::default()),
+    };
+    let entries = fingerprints::list_all().map_err(|e| e.to_string())?;
+    Ok(entries
+        .into_iter()
+        .map(|e| (e.id, gpu_caps::compat(&e.payload, &caps)))
+        .collect())
+}
+
 #[tauri::command]
 fn fingerprint_get(id: String) -> Result<Option<fingerprints::LibraryEntry>, String> {
     fingerprints::get(&id).map_err(|e| e.to_string())
@@ -941,7 +1398,7 @@ async fn launch(profile_id: String) -> Result<u32, String> {
 static BUS: tokio::sync::OnceCell<std::sync::Arc<sync_bus::Bus>> =
     tokio::sync::OnceCell::const_new();
 
-async fn bus() -> Result<std::sync::Arc<sync_bus::Bus>, String> {
+pub(crate) async fn bus() -> Result<std::sync::Arc<sync_bus::Bus>, String> {
     BUS.get_or_try_init(|| async {
         // Fresh per run: tells a browser this launcher started it rather than
         // anything else on the machine.
@@ -986,6 +1443,62 @@ async fn sync_launch(
 ) -> Result<String, String> {
     if profile_ids.len() < 2 {
         return Err("a group needs at least two profiles".into());
+    }
+    // A phone profile turns a mirrored mouse press into a touch and a desktop one
+    // does not, so refuse a mixed group before anything is launched.
+    let mut mobile: Vec<String> = Vec::new();
+    let mut desktop: Vec<String> = Vec::new();
+    for id in &profile_ids {
+        let stored = profile::load_raw(id).map_err(|e| format!("{id}: {e}"))?;
+        let name = stored
+            .config
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(id.as_str())
+            .to_string();
+        if profile::claims_mobile(&stored.config) {
+            mobile.push(name);
+        } else {
+            desktop.push(name);
+        }
+    }
+    if !mobile.is_empty() && !desktop.is_empty() {
+        return Err(format!(
+            "a sync group must be all-mobile or all-desktop — mobile: {}; desktop: {}",
+            mobile.join(", "),
+            desktop.join(", ")
+        ));
+    }
+    // Phones of one size only: a handset window IS its screen and cannot be resized,
+    // and a mirrored press carries a fraction of the viewport, so widths must match.
+    if desktop.is_empty() {
+        let mut sizes: Vec<(String, String)> = Vec::new();
+        for id in &profile_ids {
+            let stored = profile::load_raw(id).map_err(|e| format!("{id}: {e}"))?;
+            let name = stored
+                .config
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or(id.as_str())
+                .to_string();
+            let size = match profile::claimed_screen(&stored.config) {
+                Some((w, h)) => format!("{w}x{h}"),
+                None => "unknown".to_string(),
+            };
+            sizes.push((name, size));
+        }
+        let distinct: std::collections::BTreeSet<&str> =
+            sizes.iter().map(|(_, s)| s.as_str()).collect();
+        if distinct.len() > 1 {
+            let listed: Vec<String> = sizes
+                .iter()
+                .map(|(n, s)| format!("{n} ({s})"))
+                .collect();
+            return Err(format!(
+                "a mobile sync group must be all one screen size — {}",
+                listed.join(", ")
+            ));
+        }
     }
     let group = group.unwrap_or_else(|| "fleet".to_string());
     let b = bus().await?;
@@ -1323,6 +1836,26 @@ async fn ps_available_count() -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn ps_resi_isps(
+    tier: String,
+    country: String,
+    region: String,
+    city: String,
+) -> Result<Value, String> {
+    // Registered in every configuration — the handler list is one literal and
+    // cannot be gated per entry — so say so when the code behind it is absent.
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = (tier, country, region, city);
+        return Err("this build has no ProxyShard support".into());
+    }
+    #[cfg(feature = "automation")]
+    psapi::resi_isps(&tier, &country, &region, &city)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn ps_calculate(
     product: String,
     location: Option<String>,
@@ -1516,6 +2049,34 @@ pub fn run() {
             profile_get,
             profile_save,
             profile_delete,
+            automation_available,
+            automation_list,
+            automation_create,
+            automation_save,
+            automation_delete,
+            automation_duplicate,
+            automation_launch,
+            automation_attach,
+            automation_detach,
+            automation_attached,
+            automation_screencast,
+            automation_call,
+            automation_pick,
+            automation_run,
+            automation_run_stop,
+            automation_run_status,
+            automation_fleet,
+            automation_fleet_window,
+            automation_display,
+            automation_tls_fingerprints,
+            automation_modules,
+            automation_module_install,
+            automation_module_remove,
+            automation_module_permissions,
+            automation_module_grant,
+            automation_modules_dir,
+            automation_export,
+            automation_import,
             trash_list,
             trash_restore,
             trash_purge,
@@ -1542,6 +2103,8 @@ pub fn run() {
             profile_create_from_template,
             enrich_picks_for_preset,
             fingerprint_list,
+            gpu_caps,
+            gpu_caps_compat,
             fingerprint_get,
             fingerprint_import,
             fingerprint_delete,
@@ -1575,6 +2138,7 @@ pub fn run() {
             ps_import_order,
             ps_products,
             ps_available_count,
+            ps_resi_isps,
             ps_calculate,
             ps_purchase,
             ps_add_bandwidth,

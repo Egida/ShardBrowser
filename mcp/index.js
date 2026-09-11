@@ -443,6 +443,120 @@ server.tool(
     text(await api(`/profiles/${id}/cookies`, { method: "POST", body: { cookies } })),
 );
 
+// ================= Automation projects =================
+// A project drives its own browsers through the Motion domain, not CDP, so these
+// work whether or not a profile is running.
+
+server.tool(
+  "list_automation_projects",
+  "List automation projects with their blocks and run settings.",
+  {},
+  async () => text(await api("/automation/projects")),
+);
+
+server.tool(
+  "get_automation_project",
+  "Get one automation project by id.",
+  { id: z.string() },
+  async ({ id }) => text(await api(`/automation/projects/${id}`)),
+);
+
+server.tool(
+  "create_automation_project",
+  "Create an empty automation project. Add steps with save_automation_project.",
+  { name: z.string().optional() },
+  async ({ name }) =>
+    text(await api("/automation/projects", { method: "POST", body: { name } })),
+);
+
+server.tool(
+  "save_automation_project",
+  "Replace a project whole — send it back the way get_automation_project returned it, with `blocks` and `run` edited. The id in the path wins.",
+  { id: z.string(), project: z.any() },
+  async ({ id, project }) =>
+    text(await api(`/automation/projects/${id}`, { method: "PUT", body: project })),
+);
+
+server.tool(
+  "delete_automation_project",
+  "Delete an automation project. This one is not a trash — it is gone.",
+  { id: z.string() },
+  async ({ id }) => text(await api(`/automation/projects/${id}`, { method: "DELETE" })),
+);
+
+server.tool(
+  "duplicate_automation_project",
+  "Copy an automation project.",
+  { id: z.string() },
+  async ({ id }) =>
+    text(await api(`/automation/projects/${id}/duplicate`, { method: "POST" })),
+);
+
+server.tool(
+  "export_automation_project",
+  "Export a project as a bundle. Any module its steps call travels inside the bundle. Parameters the project marked secret come out empty, and `needs` says which ones.",
+  { id: z.string() },
+  async ({ id }) => text(await api(`/automation/projects/${id}/export`)),
+);
+
+server.tool(
+  "import_automation_project",
+  "Import a project bundle; it arrives as a new project with a new id. Modules carried in the bundle are installed first, except where one is already installed under the same id \u2014 that one is kept.",
+  { bundle: z.any() },
+  async ({ bundle }) =>
+    text(await api("/automation/import", { method: "POST", body: bundle })),
+);
+
+server.tool(
+  "run_automation_project",
+  "Start a project. Answers as soon as the run is under way — the browsers it needs come from its own profile blocks. Poll automation_status for progress.",
+  { id: z.string() },
+  async ({ id }) => text(await api(`/automation/projects/${id}/run`, { method: "POST" })),
+);
+
+server.tool(
+  "stop_automation_project",
+  "Ask a run to stop. Each browser finishes the step it is in and then closes, so the run does not end the instant this answers.",
+  { id: z.string() },
+  async ({ id }) => text(await api(`/automation/projects/${id}/stop`, { method: "POST" })),
+);
+
+server.tool(
+  "automation_status",
+  "How a run is going: each worker's pass, step and status, plus the tail of the log. Null when the project is not running.",
+  { id: z.string() },
+  async ({ id }) => text(await api(`/automation/projects/${id}/status`)),
+);
+
+server.tool(
+  "list_automation_runs",
+  "Every automation run going right now.",
+  {},
+  async () => text(await api("/automation/runs")),
+);
+
+server.tool(
+  "list_automation_modules",
+  "List installed WebAssembly modules. Each contributes blocks under the kind `module:<module id>:<block>`.",
+  {},
+  async () => text(await api("/automation/modules")),
+);
+
+server.tool(
+  "install_automation_module",
+  "Install a .wasm module from a path on this machine.",
+  { path: z.string() },
+  async ({ path }) =>
+    text(await api("/automation/modules", { method: "POST", body: { path } })),
+);
+
+server.tool(
+  "remove_automation_module",
+  "Remove a module. Projects using its blocks stop working; nothing rewrites them.",
+  { id: z.string() },
+  async ({ id }) => text(await api(`/automation/modules/${id}`, { method: "DELETE" })),
+);
+
 // ================= CDP browser tools (patchright) =================
 
 server.tool(

@@ -7,6 +7,7 @@ import "flag-icons/css/flag-icons.min.css";
 import { App } from "./App";
 import { SyncPanel } from "../widgets/SyncPanel";
 import { HelperPanel } from "../widgets/HelperPanel";
+import { FleetMonitor } from "../widgets/FleetMonitor";
 import { initAnalytics } from "../shared/lib/analytics";
 
 // The always-on-top panels are second Tauri windows on this same bundle,
@@ -16,16 +17,18 @@ const panelParams = new URLSearchParams(
 );
 const panelGroup = panelParams.get("syncPanel");
 const helperProfile = panelParams.get("helperPanel");
+const fleet = panelParams.get("fleet");
 
 // The launcher window only — a panel is a second window on the same bundle and
 // would otherwise report a second user for one person.
-if (!panelGroup && !helperProfile) void initAnalytics();
+if (!panelGroup && !helperProfile && !fleet) void initAnalytics();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ThemeProvider>
       {panelGroup ? <SyncPanel group={panelGroup} />
        : helperProfile ? <HelperPanel profile={helperProfile} />
+       : fleet ? <FleetMonitor />
        : <App />}
     </ThemeProvider>
   </React.StrictMode>,

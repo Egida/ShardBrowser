@@ -26,7 +26,6 @@ pub struct ArchiveSpec {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PlatformSpec {
     pub browser: ArchiveSpec,
-    pub widevine: Option<ArchiveSpec>,
 }
 
 /// Archives required for this host; None on unsupported platforms.
@@ -37,10 +36,6 @@ pub fn host_spec() -> Option<PlatformSpec> {
             key: "ShardX-Mac-arm64.zip".into(),
             label: "ShardX browser (macOS arm64)".into(),
         },
-        widevine: Some(ArchiveSpec {
-            key: "ShardX-Widevine-Mac-arm64.zip".into(),
-            label: "Widevine CDM".into(),
-        }),
     });
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     return Some(PlatformSpec {
@@ -48,10 +43,6 @@ pub fn host_spec() -> Option<PlatformSpec> {
             key: "ShardX-Windows.zip".into(),
             label: "ShardX browser (Windows x64)".into(),
         },
-        widevine: Some(ArchiveSpec {
-            key: "ShardX-Widevine-Win.zip".into(),
-            label: "Widevine CDM".into(),
-        }),
     });
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     return Some(PlatformSpec {
@@ -59,10 +50,6 @@ pub fn host_spec() -> Option<PlatformSpec> {
             key: "ShardX-Linux.zip".into(),
             label: "ShardX browser (Linux x64)".into(),
         },
-        widevine: Some(ArchiveSpec {
-            key: "ShardX-Widevine-Linux.zip".into(),
-            label: "Widevine CDM".into(),
-        }),
     });
     #[allow(unreachable_code)]
     None
@@ -208,6 +195,12 @@ fn installed_engine_build(local: &Manifest) -> Option<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     from_disk.or_else(|| local.installed_engine_build.clone())
+}
+
+/// The engine build on disk. The GPU-caps probe keys its cache on it: a
+/// Chromium bump can move ANGLE, and a stale extension list misjudges profiles.
+pub fn engine_version() -> Option<String> {
+    effective_installed_version(&load_manifest())
 }
 
 fn effective_installed_version(local: &Manifest) -> Option<String> {
@@ -412,6 +405,101 @@ fn migrate_dir_to(
     Ok(n)
 }
 
+/// Fields a profile was created before the library had. A profile keeps its own
+/// copy of the fingerprint, so updating the library never reaches it; these are
+/// copied across by name, and only where the profile carries none of its own. A
+/// fingerprint the operator brought in themselves has no library entry under
+/// that name and is left exactly as it is.
+fn adopt_library_fields(dir: &Path) -> Result<usize> {
+    let mut lib: std::collections::HashMap<String, serde_json::Value> =
+        std::collections::HashMap::new();
+    for e in crate::fingerprints::list_all().unwrap_or_default() {
+        // By library id first: it survives the operator renaming the profile,
+        // which the name does not.
+        lib.insert(e.id, e.payload.clone());
+        lib.entry(e.label).or_insert(e.payload);
+    }
+    if lib.is_empty() {
+        return Ok(0);
+    }
+    let mut n = 0usize;
+    for ent in fs::read_dir(dir)?.flatten() {
+        let p = ent.path();
+        if p.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(&p) else { continue };
+        let Ok(mut cfg) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+        let key = cfg
+            .pointer("/_meta/gpu_preset_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .or_else(|| cfg.get("name").and_then(|v| v.as_str()))
+            .map(String::from);
+        let Some(src) = key.as_deref().and_then(|k| lib.get(k)) else { continue };
+        let mut changed = false;
+        for key in ["fonts", "fonts_local"] {
+            if cfg.get(key).is_none() {
+                if let Some(v) = src.get(key) {
+                    cfg[key] = v.clone();
+                    changed = true;
+                }
+            }
+        }
+        // features live inside the webgpu block the profile already has; a
+        // profile without that block claims a machine with no adapter.
+        if cfg.pointer("/webgpu/features").is_none() {
+            if let Some(f) = src.pointer("/webgpu/features") {
+                if let Some(w) = cfg.get_mut("webgpu").and_then(|v| v.as_object_mut()) {
+                    w.insert("features".into(), f.clone());
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            if fs::write(&p, serde_json::to_string_pretty(&cfg).unwrap_or(text)).is_ok() {
+                n += 1;
+            }
+        }
+    }
+    Ok(n)
+}
+
+#[cfg(test)]
+mod adopt_tests {
+    use serde_json::json;
+
+    /// The rule the copy must keep: a profile answers to a library entry by id,
+    /// and a fingerprint the operator brought in themselves answers to nothing.
+    fn pick<'a>(
+        cfg: &serde_json::Value,
+        lib: &'a std::collections::HashMap<String, serde_json::Value>,
+    ) -> Option<&'a serde_json::Value> {
+        cfg.pointer("/_meta/gpu_preset_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .or_else(|| cfg.get("name").and_then(|v| v.as_str()))
+            .and_then(|k| lib.get(k))
+    }
+
+    #[test]
+    fn adopt_matches_by_preset_id_then_name() {
+        let mut lib = std::collections::HashMap::new();
+        lib.insert("android-oppo-a6-5g".to_string(), json!({"fonts": [["sans-serif"]]}));
+        let renamed = json!({"name": "shop 4", "_meta": {"gpu_preset_id": "android-oppo-a6-5g"}});
+        assert!(pick(&renamed, &lib).is_some(), "a renamed profile still matches by id");
+        let by_name = json!({"name": "android-oppo-a6-5g"});
+        assert!(pick(&by_name, &lib).is_some(), "an older profile matches by name");
+    }
+
+    #[test]
+    fn adopt_leaves_a_profile_with_no_library_entry_alone() {
+        let lib = std::collections::HashMap::new();
+        let own = json!({"name": "my own capture", "_meta": {"gpu_preset_id": ""}});
+        assert!(pick(&own, &lib).is_none());
+    }
+}
+
 /// Migrate both the saved profiles AND the fingerprint library (bundled +
 /// user-added) to `chromium_version`. Bundled templates are already at the new
 /// version after the seed; user-added fingerprints get their UA + client_hints
@@ -425,6 +513,7 @@ fn migrate_all_to(
     let mut n = 0;
     if let Ok(d) = crate::store::profiles_dir() {
         n += migrate_dir_to(&d, chromium_version, grease_brand, grease_version, tls).unwrap_or(0);
+        n += adopt_library_fields(&d).unwrap_or(0);
     }
     if let Ok(d) = crate::store::fingerprints_dir() {
         n += migrate_dir_to(&d, chromium_version, grease_brand, grease_version, tls).unwrap_or(0);
@@ -445,11 +534,14 @@ pub async fn ensure_profiles_migrated() {
     // TLS is part of the signature: without it a manifest that changes only
     // the ClientHello shape would be a no-op for anyone already on this
     // version, and their profiles would keep the previous release's JA4.
+    // engine_build is in the signature too: a release that keeps the Chromium
+    // version but changes what the engine does would otherwise migrate nobody.
     let sig = format!(
-        "{target}|{}|{}|{}",
+        "{target}|{}|{}|{}|{}",
         m.grease_brand.as_deref().unwrap_or(""),
         m.grease_version.as_deref().unwrap_or(""),
         m.tls.as_ref().map(|t| t.to_string()).unwrap_or_default(),
+        m.engine_build.as_deref().unwrap_or(""),
     );
     let mut local = load_manifest();
     if local.applied_signature.as_deref() == Some(sig.as_str()) {
@@ -611,20 +703,14 @@ pub async fn runtime_install(window: Window, force: bool) -> Result<RuntimeStatu
         local.browser_etag.clone().unwrap_or_default()
     };
 
-    let widevine_etag = if let Some(wv) = &spec.widevine {
-        // Re-download Widevine only when browser changed or manifest lacks a stamp.
-        if need_browser || local.widevine_etag.is_none() {
-            let etag = download_and_extract(&window, wv, &base)
-                .await
-                .map_err(|e| e.to_string())?;
-            place_widevine(&base).map_err(|e| e.to_string())?;
-            Some(etag)
-        } else {
-            local.widevine_etag.clone()
-        }
-    } else {
-        None
-    };
+    // The CDM is no longer fetched here. The engine's own component updater
+    // downloads it into the profile's user-data-dir, which is the only place
+    // Chromium reads it from: BUNDLE_WIDEVINE_CDM is off in our build, so the
+    // copy this used to place inside the bundle was never opened. The launcher
+    // now keeps the first one an engine downloads and seeds the rest from it
+    // (launch::harvest_widevine), which also means the CDN never has to carry
+    // a CDM version again.
+    let widevine_etag: Option<String> = local.widevine_etag.clone();
 
     // Fingerprint seed: overwrites bundled templates, leaves user-added files;
     // skipped when the etag matches. User-added FP get version-migrated below.
@@ -878,66 +964,6 @@ fn fix_unix_exec_bits(root: &Path) {
         }
     }
     walk(root, MAGIC);
-}
-
-/// Move Widevine to `<Framework>.framework/Versions/<ver>/Libraries/WidevineCdm/`.
-#[cfg(target_os = "macos")]
-fn place_widevine(base: &Path) -> Result<()> {
-    let src = base
-        .join("ShardX-Widevine-Mac-arm64")
-        .join("WidevineCdm");
-    if !src.exists() {
-        return Ok(());
-    }
-    let dst = base
-        .join("ShardX-Mac-arm64")
-        .join("ShardX.app")
-        .join("Contents")
-        .join("Frameworks")
-        .join("ShardX Framework.framework")
-        .join("Versions")
-        .join(CHROMIUM_VERSION)
-        .join("Libraries")
-        .join("WidevineCdm");
-    if dst.exists() {
-        let _ = fs::remove_dir_all(&dst);
-    }
-    fs::create_dir_all(dst.parent().context("widevine parent")?)?;
-    fs::rename(&src, &dst)?;
-    let _ = fs::remove_dir(base.join("ShardX-Widevine-Mac-arm64"));
-    Ok(())
-}
-
-/// Windows flat layout: WidevineCdm/ sits beside chrome.exe.
-#[cfg(target_os = "windows")]
-fn place_widevine(base: &Path) -> Result<()> {
-    let src = base.join("ShardX-Widevine-Win").join("WidevineCdm");
-    if !src.exists() {
-        return Ok(());
-    }
-    let dst = base.join("ShardX-Windows").join("WidevineCdm");
-    if dst.exists() {
-        let _ = fs::remove_dir_all(&dst);
-    }
-    fs::rename(&src, &dst)?;
-    let _ = fs::remove_dir(base.join("ShardX-Widevine-Win"));
-    Ok(())
-}
-
-/// Linux: WidevineCdm/ next to chrome binary (flat layout).
-#[cfg(target_os = "linux")]
-fn place_widevine(base: &Path) -> Result<()> {
-    let src = base.join("ShardX-Widevine-Linux").join("WidevineCdm");
-    if !src.exists() {
-        return Ok(());
-    }
-    let dst = base.join("ShardX-Linux").join("WidevineCdm");
-    if dst.exists() {
-        let _ = fs::remove_dir_all(&dst);
-    }
-    fs::rename(&src, &dst)?;
-    let _ = fs::remove_dir(base.join("ShardX-Widevine-Linux"));
-    Ok(())
 }
 
 // ---- launcher self-update check ----

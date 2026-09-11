@@ -57,3 +57,18 @@ export function useRunningCount() {
   const running = useProfile((s) => s.running);
   return useMemo(() => Object.values(running).filter(Boolean).length, [running]);
 }
+
+/// Why "Launch synced" is unavailable for the current selection; "" means it is fine.
+/// A press is a tap on a phone and a click on a desktop: one stream cannot drive both.
+export function useSyncBlockReason(): string {
+  const profiles = useProfile((s) => s.profiles);
+  const selected = useProfile((s) => s.selected);
+  return useMemo(() => {
+    const picked = profiles.filter((p) => selected.has(p.id));
+    const m = picked.filter((p) => p.mobile).length;
+    if (m > 0 && m < picked.length) {
+      return `Mixed selection: ${m} mobile + ${picked.length - m} desktop. A sync group must be all-mobile or all-desktop.`;
+    }
+    return "";
+  }, [profiles, selected]);
+}

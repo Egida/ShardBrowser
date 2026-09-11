@@ -1,10 +1,16 @@
 import Badge from "../../shared/ui/Badge";
-import { AppleOsIcon, WindowsOsIcon, LinuxOsIcon } from "../../shared/icons";
+import { AppleOsIcon, WindowsOsIcon, LinuxOsIcon, AndroidOsIcon } from "../../shared/icons";
 import { useFingerprint, useFingerprintGroups, FingerprintCard } from "../../entities/fingerprint";
 import { FingerprintCardActions } from "../../features/manage-fingerprints";
 
 function PlatformIcon({ platform }: { platform: string }) {
-  switch (platform.toLowerCase()) {
+  const p = platform.toLowerCase();
+  // Before the switch, and on a prefix: navigator.platform on a handset is
+  // "Linux armv8l", which an equality switch sends to the default Apple icon.
+  if (p.startsWith("android") || p.startsWith("linux arm")) {
+    return <AndroidOsIcon className="size-4 text-warning-base" />;
+  }
+  switch (p) {
     case "macos":
       return <AppleOsIcon className="size-4 text-primary-base" />;
     case "windows":

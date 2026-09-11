@@ -7,6 +7,7 @@ import { readTextFile } from "../../../shared/lib/utils";
 import { profileCreateFromTemplate } from "../../profile/model/api";
 import { FingerprintEntry } from "../model/types";
 import { fingerprintList, fingerprintDelete, fingerprintImport, fingerprintDir } from "../model/api";
+import { storeBus } from "../../../shared/lib/storeBus";
 
 export type FingerprintStore = {
     status: "idle" | "loading" | "ready" | "error";
@@ -52,6 +53,9 @@ export const useFingerprint = create<FingerprintStore>((set, get) => ({
     useTemplate: async (id) => {
         try {
             const meta = await profileCreateFromTemplate(id);
+            // The one action that crosses into the profile store: without this the new
+            // profile is on disk and nowhere on screen. Via the bus — a direct import cycles.
+            storeBus.emit("profiles");
             toast.ok(`Created "${meta.name}" — open Browsers to edit`);
         } catch (e) { toast.err(String(e)); }
     },

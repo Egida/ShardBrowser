@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, SegmentControl, Textarea } from "@proxyshard/shardx-ui-kit";
+import { Button, SegmentControl, Switch, Textarea } from "@proxyshard/shardx-ui-kit";
 import { Field } from "../../../shared/ui/Field";
 import { NumField } from "../../../shared/ui/NumField";
 import { Pair } from "../../../shared/ui/Pair";
@@ -12,12 +12,14 @@ import { ProxySelect } from "./ProxySelect";
 import { HOST_OS } from "../../../shared/lib/utils";
 import {
   AUTO_TZ, TIMEZONES, LOCALES,
-  MEMORY_OPTIONS, CPU_OPTIONS, MEDIA_COUNT_OPTIONS, OS_OPTIONS,
+  MEMORY_OPTIONS, CPU_OPTIONS, MEDIA_COUNT_OPTIONS, OS_OPTIONS, matchesOs, osIdFor,
 } from "../../../shared/constants";
 import type { ProfileForm, GeoMode, WebRtcMode } from "../../../entities/profile";
 import type { FingerprintEntry } from "../../../entities/fingerprint";
 import type { ProxyEntry } from "../../../entities/proxy";
-import { enrichPicksForPreset } from "../../../entities/profile";
+import { enrichPicksForPreset, claimsMobile } from "../../../entities/profile";
+import { useGpuCompat } from "../../../shared/model/gpuCompat";
+import { IncompatibleWarningModal } from "../../gpu-compat";
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -43,14 +45,22 @@ export function InlineEditor({
   // OS filter init from bound fingerprint's platform; new profile uses host OS.
   const currentFp = fingerprints.find((x) => x.id === f.gpu_preset_id);
   const [osFilter, setOsFilter] = useState<string>(
-    (currentFp?.platform as string) ?? HOST_OS
+    currentFp ? osIdFor(currentFp.platform as string) : HOST_OS
   );
   const gpusForOs = useMemo(
-    () => fingerprints.filter((fp) => fp.platform === osFilter),
+    () => fingerprints.filter((fp) => matchesOs(fp.platform, osFilter)),
     [fingerprints, osFilter],
   );
 
   /// Pick GPU = full fingerprint snap; toStored carries lib.payload at save.
+  // The verdict map and the "stop warning me" flag; the load is once per app run.
+  const compatById = useGpuCompat((s) => s.byId);
+  const suppressed = useGpuCompat((s) => s.suppressed);
+  const loadCompat = useGpuCompat((s) => s.load);
+  useEffect(() => { void loadCompat(); }, [loadCompat]);
+  // A pick held back until the operator has seen what it costs.
+  const [pendingGpu, setPendingGpu] = useState<string | null>(null);
+
   const setGpu = async (id: string) => {
     const fp = fingerprints.find((x) => x.id === id);
     if (!fp) return;
@@ -73,22 +83,37 @@ export function InlineEditor({
   };
 
   // Snap unknown / empty gpu_preset_id to a random GPU of the active OS.
+  // Only from fingerprints this machine can back: otherwise the page reads the
+  // extension in getSupportedExtensions() and null from getExtension().
   useEffect(() => {
     if (fingerprints.length === 0) return;
     const exists = fingerprints.some((g) => g.id === f.gpu_preset_id);
     if (!exists) {
-      const pool = gpusForOs.length > 0 ? gpusForOs : fingerprints;
+      const base = gpusForOs.length > 0 ? gpusForOs : fingerprints;
+      const fitting = base.filter((g) => compatById[g.id]?.compatible !== false);
+      const pool = fitting.length > 0 ? fitting : base;
       const pick = pool[Math.floor(Math.random() * pool.length)];
       if (pick) setGpu(pick.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fingerprints, osFilter, f.gpu_preset_id]);
 
+  /// What the GPU select calls: applies a pick that fits this machine, and asks
+  /// first otherwise — the choice stays the operator's, the cost has to be known.
+  const chooseGpu = (id: string) => {
+    const verdict = compatById[id];
+    if (verdict && !verdict.compatible && !suppressed) {
+      setPendingGpu(id);
+      return;
+    }
+    void setGpu(id);
+  };
+
   const pickOs = (os: string) => {
     setOsFilter(os);
     // Switch GPU to first of new OS if current doesn't match.
-    if (currentFp && currentFp.platform !== os) {
-      const first = fingerprints.find((g) => g.platform === os);
+    if (currentFp && !matchesOs(currentFp.platform, os)) {
+      const first = fingerprints.find((g) => matchesOs(g.platform, os));
       if (first) setGpu(first.id);
     }
   };
@@ -116,7 +141,7 @@ export function InlineEditor({
           <label className="flex flex-col gap-1">
             <CSSelect
               value={f.gpu_preset_id}
-              onChange={(v) => setGpu(v)}
+              onChange={(v) => chooseGpu(v)}
               title="GPU / device (from Fingerprint Library)"
               placeholder={`— no ${osFilter} fingerprints in library —`}
               options={gpusForOs.map((g) => ({ value: g.id, label: g.label }))}
@@ -261,6 +286,29 @@ export function InlineEditor({
             <SelectField label="Webcam" value={f.media_video_in} onChange={(v) => u("media_video_in", v)} options={MEDIA_COUNT_OPTIONS} />
           </div>
 
+          {claimsMobile(f) && (
+            <>
+              <div className="mt-2.5">
+                <SectionHeading>Media</SectionHeading>
+              </div>
+              <Switch
+                label="Answer DRM questions the Android way"
+                checked={f.android_media}
+                onChange={(checked) => u("android_media", checked)}
+              />
+              <p className="m-0 -mt-1 text-paragraph-xs text-text-soft-400">
+                Almost every Android device is Widevine L1, so a real phone accepts
+                hardware-secured playback and this one refuses it — which a site can
+                read in one call. Turning this on makes the profile answer like the
+                device it claims to be. The catch: this browser reaches Widevine
+                through a software module, so a site that believes the answer and
+                asks for a hardware-secured licence gets one it cannot play. Leave it
+                off where paid video has to work; turn it on where matching the device
+                matters more.
+              </p>
+            </>
+          )}
+
           <div className="mt-2.5">
             <SectionHeading>Extensions</SectionHeading>
           </div>
@@ -284,6 +332,17 @@ export function InlineEditor({
           {f.id ? "Save changes" : "Create profile"}
         </Button>
       </div>
+      {pendingGpu && compatById[pendingGpu] && (
+        <IncompatibleWarningModal
+          compat={compatById[pendingGpu]}
+          onKeep={() => {
+            const id = pendingGpu;
+            setPendingGpu(null);
+            void setGpu(id);
+          }}
+          onCancel={() => setPendingGpu(null)}
+        />
+      )}
     </div>
   );
 }

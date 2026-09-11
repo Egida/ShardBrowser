@@ -19,6 +19,8 @@ export type ProfileMeta = {
   color: string | null;
   /// Extension ids from the library, loaded at launch.
   extensions: string[];
+  /// Phone/tablet fingerprint, decided in Rust by the core's own rule.
+  mobile: boolean;
 };
 
 export type ProfileForm = {
@@ -30,6 +32,8 @@ export type ProfileForm = {
   color: string;
   /// Extension ids from the library.
   extensions: string[];
+  /// Answer media questions the Android way. Phone profiles only.
+  android_media: boolean;
 
   gpu_preset_id: string;
   user_agent: string;

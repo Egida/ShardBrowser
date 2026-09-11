@@ -10,6 +10,7 @@ export const defaultForm = (): ProfileForm => ({
   proxy_id: null,
   color: "",
   extensions: [],
+  android_media: false,
 
   // Empty until snapped to gpusForOs[0] by useEffect.
   gpu_preset_id: "",
@@ -53,6 +54,7 @@ export function fromStored(stored: any): ProfileForm {
   f.notes = stored?.notes ?? "";
   f.color = stored?._meta?.color ?? "";
   f.extensions = Array.isArray(stored?._meta?.extensions) ? stored._meta.extensions : [];
+  f.android_media = stored?._meta?.android_media === true;
   // Empty for legacy profiles; snapped by useEffect.
   f.gpu_preset_id = stored?._meta?.gpu_preset_id ?? "";
   f.user_agent = stored?.navigator?.user_agent ?? f.user_agent;
@@ -102,6 +104,7 @@ export function toStored(f: ProfileForm, lib: FingerprintEntry | null): any {
     // Absent, not empty: that is what "derive it" means on disk.
     ...(f.color ? { color: f.color } : {}),
     extensions: f.extensions,
+    ...(f.android_media ? { android_media: true } : {}),
   };
   base.name = f.name || "untitled";
   base.notes = f.notes;
@@ -156,4 +159,10 @@ export function toStored(f: ProfileForm, lib: FingerprintEntry | null): any {
   base.blocked_ports = [...f.blocked_ports].sort((a, b) => a - b);
 
   return base;
+}
+
+/** Whether a form describes a phone. By the user agent: the OS control offers no
+ *  phone, and navigator.platform on Chrome for Android says "Linux armv8l". */
+export function claimsMobile(f: { user_agent?: string }): boolean {
+  return (f.user_agent || "").toLowerCase().includes("android");
 }

@@ -103,6 +103,7 @@ tags:
   - name: Extensions
   - name: Bookmarks
   - name: Trash
+  - name: Automation
 
 paths:
   /health:
@@ -897,6 +898,399 @@ paths:
                   id: { type: string, format: uuid }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /automation/projects:
+    get:
+      tags: [Automation]
+      summary: List automation projects
+      description: |
+        Every project saved in the launcher, with its blocks and run settings.
+        These are the same projects the desktop **Automation** section edits.
+      responses:
+        "200":
+          description: The projects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AutomationProject" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Automation]
+      summary: Create an empty project
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, description: "Empty gives \"Untitled\"." }
+      responses:
+        "200":
+          description: The new project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutomationProject" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /automation/projects/{id}:
+    get:
+      tags: [Automation]
+      summary: Get one project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutomationProject" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [Automation]
+      summary: Replace a project
+      description: |
+        Whole-project replace: send it back the way `GET` returned it. The id
+        in the path wins over the one in the body, and an id that does not
+        exist is a `404` rather than a silent create — use `POST
+        /automation/projects` to make one.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutomationProject" }
+      responses:
+        "200":
+          description: The saved project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutomationProject" }
+        "400":
+          description: The body is not a project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [Automation]
+      summary: Delete a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: boolean, example: true }
+                  id: { type: string, format: uuid }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /automation/projects/{id}/duplicate:
+    post:
+      tags: [Automation]
+      summary: Copy a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The copy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutomationProject" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /automation/projects/{id}/export:
+    get:
+      tags: [Automation]
+      summary: Export a project as a bundle
+      description: |
+        Parameters the project marked secret are emptied on the way out, so a
+        bundle can be handed on without taking a password with it. The import
+        side asks for them again.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The bundle.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutomationBundle" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /automation/import:
+    post:
+      tags: [Automation]
+      summary: Import a project bundle
+      description: The bundle arrives as a new project with a new id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutomationBundle" }
+      responses:
+        "200":
+          description: The imported project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutomationProject" }
+        "400":
+          description: Not a bundle, or a version this build does not read.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /automation/projects/{id}/run:
+    post:
+      tags: [Automation]
+      summary: Start a project
+      description: |
+        Answers as soon as the run is under way — the browsers it needs are
+        started by the project's own blocks. Poll `/status` for progress.
+
+        A project already running is a `400`; so is one with no enabled steps.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Started.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project_id: { type: string, format: uuid }
+                  running: { type: boolean, example: true }
+        "400":
+          description: Already running, or nothing to run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "501":
+          description: This launcher was built without automation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /automation/projects/{id}/stop:
+    post:
+      tags: [Automation]
+      summary: Stop a project
+      description: |
+        Asks the run to stop. Each browser finishes the step it is in and then
+        closes, so the run does not disappear the instant this answers — watch
+        `running` on `/status`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Stopping.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project_id: { type: string, format: uuid }
+                  stopping: { type: boolean, example: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "501":
+          description: This launcher was built without automation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /automation/projects/{id}/status:
+    get:
+      tags: [Automation]
+      summary: How a run is going
+      description: |
+        `null` when the project is not running and has not run since the
+        launcher started. The log is the tail the fleet window shows; the whole
+        thing is on disk under `automation-runs/`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The run state, or null.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AutomationRun"
+                  - type: "null"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "501":
+          description: This launcher was built without automation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /automation/runs:
+    get:
+      tags: [Automation]
+      summary: Every run going right now
+      responses:
+        "200":
+          description: The runs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AutomationRun" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "501":
+          description: This launcher was built without automation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /automation/modules:
+    get:
+      tags: [Automation]
+      summary: List installed modules
+      description: |
+        Modules are WebAssembly an operator wrote themselves; each contributes
+        blocks under the kind `module:<module id>:<block>`. A module never
+        touches the page — it answers with actions the runner performs.
+      responses:
+        "200":
+          description: The modules.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AutomationModule" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "501":
+          description: This launcher was built without automation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [Automation]
+      summary: Install a module
+      description: |
+        `path` is a `.wasm` file **on this machine** — the API is local, and a
+        module is native code the operator built themselves.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, example: "/home/me/module.wasm" }
+      responses:
+        "200":
+          description: The installed module.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutomationModule" }
+        "400":
+          description: No path, or the file is not a module this build can load.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "501":
+          description: This launcher was built without automation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /automation/modules/{id}:
+    delete:
+      tags: [Automation]
+      summary: Remove a module
+      description: Projects using its blocks stop working; nothing rewrites them.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: boolean, example: true }
+                  id: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such module.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "501":
+          description: This launcher was built without automation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1382,3 +1776,149 @@ components:
         password: { type: string }
         country: { type: string }
         notes: { type: string }
+
+    AutomationBranch:
+      description: |
+        Where the run goes after a step. A plain string for the simple cases,
+        an object for the ones carrying a value.
+      oneOf:
+        - type: string
+          enum: [next, stop, endpass]
+          description: |
+            `next` — the step below. `stop` — end this profile's whole run.
+            `endpass` — end this pass; the next one starts from the top.
+        - type: object
+          properties:
+            goto: { type: string, description: "Block id to jump to; one that no longer exists behaves as next." }
+        - type: object
+          properties:
+            retry: { type: integer, description: "Try this same step again, that many more times, then take next." }
+
+    AutomationBlock:
+      type: object
+      description: One step. `kind` and `params` are open — a module can add a kind this build has never heard of.
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          description: |
+            A palette kind (`goto`, `click`, `type`, `profile.create`,
+            `var.set`, …) or `module:<module id>:<block>`.
+          example: click
+        label: { type: string }
+        params:
+          type: object
+          additionalProperties: true
+          description: The step's own fields, as the palette defines them.
+        enabled: { type: boolean, default: true }
+        x: { type: number, description: "Canvas position. Layout only — the run follows the branches." }
+        y: { type: number }
+        on_done: { $ref: "#/components/schemas/AutomationBranch" }
+        on_fail:
+          allOf:
+            - $ref: "#/components/schemas/AutomationBranch"
+          description: Defaults to `stop` — carrying on after a click that found nothing is how a run types into the wrong page.
+        secrets:
+          type: array
+          items: { type: string }
+          description: Parameter names emptied on export.
+
+    AutomationRunSettings:
+      type: object
+      properties:
+        threads: { type: integer, default: 1, description: "Browsers running at once; clamped to 1–64." }
+        loops: { type: integer, default: 1, description: "Passes over the blocks. 0 means run until `hours` is up." }
+        hours: { type: number, description: "Only meaningful when `loops` is 0." }
+        start: { type: string, description: "Block id to start at; empty means the first." }
+        profiles:
+          type: array
+          items: { type: string }
+          description: Kept for projects saved before profiles became blocks; one thread each when set.
+
+    AutomationProject:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        notes: { type: string }
+        blocks:
+          type: array
+          items: { $ref: "#/components/schemas/AutomationBlock" }
+        run: { $ref: "#/components/schemas/AutomationRunSettings" }
+        created_at: { type: integer, description: "Unix seconds." }
+        updated_at: { type: integer, description: "Unix seconds." }
+
+    AutomationBundle:
+      type: object
+      description: A project on its way to another machine.
+      properties:
+        format: { type: integer, example: 1, description: "An import refuses a number it does not know." }
+        exported_at: { type: integer, description: "Unix seconds." }
+        project: { $ref: "#/components/schemas/AutomationProject" }
+        modules:
+          type: array
+          items: { type: string }
+          description: Module ids the steps need.
+        module_files:
+          type: array
+          description: |
+            Those modules' files, carried inside the bundle so an imported
+            project can run where it lands. A module missing from disk at
+            export time is left out here but still named in `modules`. On
+            import, a module already installed under the same id is kept as it
+            is rather than overwritten.
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              wasm: { type: string, description: "The .wasm, gzipped then base64." }
+        needs:
+          type: array
+          description: What export blanked, so an import can ask for exactly that.
+          items:
+            type: object
+            properties:
+              block_id: { type: string }
+              label: { type: string }
+              params:
+                type: array
+                items: { type: string }
+
+    AutomationWorker:
+      type: object
+      description: One browser inside a run.
+      properties:
+        profile_id: { type: string }
+        profile_name: { type: string }
+        pass: { type: integer, description: "1-based; 0 before the first pass starts." }
+        step: { type: integer }
+        steps_total: { type: integer }
+        status: { type: string, enum: [queued, starting, running, done, failed, stopped] }
+        note: { type: string }
+
+    AutomationRun:
+      type: object
+      properties:
+        project_id: { type: string, format: uuid }
+        project_name: { type: string }
+        started_at: { type: integer, description: "Unix seconds." }
+        running: { type: boolean }
+        workers:
+          type: array
+          items: { $ref: "#/components/schemas/AutomationWorker" }
+        log:
+          type: array
+          items: { type: string }
+          description: The tail the fleet window shows; the whole log is on disk under `automation-runs/`.
+
+    AutomationModule:
+      type: object
+      properties:
+        id: { type: string, description: "File stem; also the prefix every one of its block kinds carries." }
+        name: { type: string }
+        path: { type: string }
+        blocks:
+          type: array
+          items: { type: object, additionalProperties: true }
+          description: Block descriptors, in the same shape as the built-in palette.
+        error: { type: string, description: "Empty when the module loaded; otherwise why it did not." }

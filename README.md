@@ -102,9 +102,10 @@ Blink, V8 and the network stack. ShardX does not rely on JavaScript
 injection, so the same values are visible in frames, workers, developer
 tools and headless sessions.
 
-The launcher includes 170 ready-made device profiles for Mac M1 to M5,
+The launcher includes 236 ready-made device profiles for Mac M1 to M5,
 Windows desktops and laptops with NVIDIA RTX or GTX, Intel, and AMD
-GPUs, and Linux workstations. You can bind a SOCKS5 or HTTP proxy to each profile.
+GPUs, Linux workstations and Android phones. You can bind a SOCKS5 or HTTP
+proxy to each profile.
 The launcher resolves timezone, locale and geolocation from the proxy
 exit country. It also manages an isolated `user-data-dir` for each
 profile, persistent cookies, Widevine pre-warming and QUIC over the
@@ -161,13 +162,28 @@ iframes, web workers, developer tools and headless mode.
   uses the proxy's UDP relay. In the other modes, WebRTC candidates report the
   proxy exit IP, never the host. STUN / TURN targets on private
   networks are dropped.
+* **Mobile profiles:** a profile claiming a phone behaves like one.
+  Mouse and wheel reach the page as finger touches, the viewport lays
+  out at mobile widths, screen orientation follows the claimed screen
+  and can be turned over the debugging port, motion sensors report a
+  device being held, and the font set is the handset's. Protected video
+  at the level a phone claims is an opt-in switch per profile.
 * **Speech voices:** full per-OS `speechSynthesis.getVoices()`
   enumeration (200+ macOS voices, SAPI + Google for Windows, Google-only
   for Linux).
-* **Fonts:** system font enumeration pinned to a per-profile set so
-  font-list probes return the claimed device's fonts, not the host's.
-* **WebGPU on Linux:** disabled to match what real Linux Chrome
-  actually exposes (most distros ship WebGPU off).
+* **Fonts:** a profile can declare the font set of the device it
+  claims, and that set is all a page can find — the machine's own fonts
+  stop being visible. Declared families the machine does not have are
+  still measured as present, drawn with a face it does have, so a phone
+  profile reports a phone's fonts rather than nothing. Names are
+  declared in groups, because a device's font config mostly is: on
+  Android, Arial, Helvetica, Tahoma and Verdana are one file and measure
+  alike. Without a declared set the host's fonts flow through with a
+  small per-profile subset hidden.
+* **WebGPU on Linux:** a profile claiming a Linux desktop keeps
+  `navigator.gpu` and answers the adapter request with nothing, which is
+  what Chrome on Linux does — it ships with the service switched off.
+  Without this the profile handed back the host machine's own adapter.
 * **Google validation headers:** headers added by Google Chrome to
   requests for Google properties are reproduced, including `x-client-data`.
   Its absence is a strong reCAPTCHA bot signal.
@@ -186,24 +202,71 @@ iframes, web workers, developer tools and headless mode.
   Chrome sessions ("Continue where you left off" without the
   crash-restore bubble), bulk import, folder / tag organization, pin
   to top, clone.
-* **Fingerprint library:** 170 starter profiles shipped via CDN
-  (31 mac-arm64 / 120 windows-x64 / 19 linux-x64). Profile editor
-  randomizes CPU / RAM / platform-version when you change the GPU.
+* **Fingerprint library:** 236 starter profiles shipped via CDN
+  (36 mac-arm64 / 131 windows-x64 / 19 linux-x64 / 50 android). Profile
+  editor randomizes CPU / RAM / platform-version when you change the
+  GPU, and the OS selector includes Android.
 * **Proxy manager:** SOCKS5 / HTTP / HTTPS, bulk paste-import,
   per-proxy live test (TCP + UDP_ASSOCIATE probe + geo lookup), bind a
   proxy to a profile by id or inline-on-launch. Auto-resolves timezone
   / locale / geolocation from the proxy's exit country.
 * **Auto-runtime:** first launch downloads the patched ShardX Chromium
-  build, Widevine CDM and the fingerprint library from CDN. Widevine is
-  placed inside the browser framework. An ETag is stored so later
-  launches do not repeat these downloads.
+  build and the fingerprint library from CDN; an ETag is stored so later
+  launches do not repeat them. The Widevine CDM is not shipped: the
+  engine's own component updater fetches it for the first profile that
+  opens a DRM page, and the launcher keeps that copy and hands it to
+  every profile after — so the CDM is always the version Google is
+  currently serving.
+* **Synchronised windows:** you work in one window and every other window
+  in the group repeats what you did, in its own profile. Pointer,
+  keystrokes, scrolling, tabs opened and closed, extension popups. It is
+  not a recording played back: each window performs the action with its
+  own motor profile, so no two move identically. There is no leader to
+  appoint — whichever window is receiving your input is the one driving,
+  and switching windows switches that too. The fill helper is left out on
+  purpose: every window fills the same form with its own generated person,
+  so mirroring those keystrokes would put one window's answers in
+  everyone else's fields.
+* **Automation:** build a project out of steps — navigation, pointer,
+  keyboard, waiting, reading, flow control, requests, databases — and run
+  it against as many profiles as you like, several at a time, for a number
+  of passes or for a number of hours. Every step says where the run goes
+  next both when it works and when it does not, and failure stops by
+  default, because carrying on after a click that found nothing is how a
+  run ends up typing into the wrong page. Open a profile inside the
+  section and its window appears beside the list: click, type and scroll
+  straight on it, right-click to pick what to do with whatever is under
+  the cursor, and turn recording on to have everything you do written down
+  as steps. The Fleet window shows every browser in the run and the step it
+  is on, and each run keeps its own log.
+* **Human input engine:** every click and keystroke the launcher performs —
+  yours and the project's — goes through the browser's own input engine
+  rather than synthesised DOM events. Movement has acceleration and
+  overshoot, typing has rhythm and corrections, and a site sees a person
+  using a mouse.
+* **Form filling helper:** generates a coherent person — name, address,
+  card, dates — and types it into the page through that same engine, from
+  the right-click menu. Each profile gets its own person, so a group of
+  profiles filling the same form does not fill it identically.
+* **Your own blocks:** a step can be a small module you write in Rust and
+  compile to WebAssembly. It never touches the page — it is handed the
+  step's settings and answers with ordinary actions the launcher performs
+  itself. Modules install and uninstall in the Automation section, their
+  steps appear in the library in a group of their own, and a project
+  exported to a file carries the modules it needs with it.
+* **Camera:** a profile can present a video file, a still image or a region
+  of the screen as its webcam, with the device named the way the claimed
+  machine would name it.
 * **Local automation API:** axum HTTP server on `127.0.0.1`,
   Bearer JWT authentication. Full reference at
   [docs.proxyshard.com/eng/shardx-launcher-api](https://docs.proxyshard.com/eng/shardx-launcher-api/binding-and-lifecycle?fallback=true&utm_source=shardx&utm_medium=referral&utm_campaign=shardx-launcher),
   raw schema in [openapi.yaml](openapi.yaml). Create / start / stop
   profiles and get a CDP WebSocket URL programmatically.
 * **MCP server bundled:** connect ShardX to Claude Desktop, Cursor and
-  other MCP clients for natural-language profile orchestration.
+  other MCP clients for natural-language profile orchestration. Automation
+  projects are reachable the same way — list them, read one, replace it,
+  run it, watch a run, stop it, export and import — over the local API and
+  as MCP tools, so a project no longer has to be started by hand.
 * **Cookie I/O:** import / export the profile's Chromium Cookies
   SQLite with v10 (mac / linux) and AES-GCM + DPAPI (win) decryption.
 * **Extension library:** paste a Web Store link or extension ID and the
@@ -228,6 +291,16 @@ iframes, web workers, developer tools and headless mode.
   launching while it runs.
 * **Extra launch arguments:** switches are appended to every profile launch
   and applied last, so they can override the launcher's defaults.
+* **Android DRM answers (phone profiles):** a switch on the profile itself,
+  under Media in the editor, shown only for a profile that claims a phone.
+  Almost every Android device is Widevine L1, so a real handset accepts
+  hardware-secured playback and this browser refuses it — one
+  `requestMediaKeySystemAccess` call with a robustness string reads the
+  difference. Turned on, the profile answers like the device it claims to be.
+  The trade is real and is why it is off by default: ShardX reaches Widevine
+  through a software module, so a site that believes the answer and asks for a
+  hardware-secured licence gets one it cannot play. Leave it off where paid
+  video has to work, turn it on where matching the device matters more.
 * **Cross-platform:** macOS arm64, Windows x64 and Linux x64. The app uses
   native traffic lights on macOS and a custom title bar elsewhere.
 
@@ -289,7 +362,11 @@ the browser engine.
 | QUIC / HTTP-3 over SOCKS5                                     | ✅ stable end to end via UDP relay | ⚠️ unstable, falls back to TCP or drops mid-session | ❌ disabled when proxy is set |
 | WebRTC over SOCKS5 (no real-IP leak via STUN)                 | ✅ proxy UDP relay or synth candidates | ⚠️ same UDP relay path, same instability | ⚠️ disable-only            |
 | Consistency of generated profiles                             | ✅ coherent device (GPU, CPU, RAM, UA and fonts) | ❌ frequent contradictions (Win UA + Mac GPU, mobile UA + desktop screen, etc.) | ⚠️ varies |
-| Bundled fingerprint library                                   | 170 profiles from real-device samples | ❌ random generator, may combine a Windows UA with a Mac GPU or a mobile UA with a desktop screen | catalog (subscription) |
+| Bundled fingerprint library                                   | 236 profiles from real-device samples, phones included | ❌ random generator, may combine a Windows UA with a Mac GPU or a mobile UA with a desktop screen | catalog (subscription) |
+| Mobile profiles (touch input, sensors, phone fonts)           | ✅ the browser behaves like a phone, not only answers like one | ❌ none | ⚠️ UA and screen only |
+| Synchronised windows                                          | ✅ one window drives, the rest repeat in their own profiles | ❌ none | ⚠️ paid add-on where offered |
+| Built-in automation                                           | ✅ visual projects, recording, fleet runs, WASM modules, local API + MCP | ❌ external scripts only | ⚠️ varies, usually paid |
+| Human input engine                                            | ✅ in the browser itself, used by hand and by scripts | ❌ none | ⚠️ synthetic events |
 | Pricing                                                       | **Free**, proxy costs only   | **Free**, engine only        | Paid / freemium                                |
 | Management UI                                                 | ✅ desktop app (this launcher) | ⚠️ CLI only, manual profile management | ✅ desktop app                |
 | Launcher source                                               | **Open** (MIT, this repo)     | **Open** (CLI)                | Closed                                         |
@@ -384,9 +461,8 @@ npm run tauri build    # release .app / .msi / .AppImage in src-tauri/target/rel
 
 ### First launch
 
-The app downloads the patched browser (~150 MB), Widevine (~16 MB) and
-the fingerprint library (~470 KB) from our CDN, places everything
-under
+The app downloads the patched browser (~150 MB) and the fingerprint
+library (~780 KB) from our CDN, places everything under
 
 * `~/Library/Application Support/shardx-launcher/` (mac)
 * `%APPDATA%\shardx-launcher\` (win)
@@ -410,7 +486,7 @@ bulk import. Select *Test* to run a TCP check, UDP_ASSOCIATE probe and
 IP geolocation lookup. Open *Profiles*, select a profile, choose *Bind
 proxy* and then select *Start*. The launcher handles the following tasks:
 
-* downloading the engine + Widevine + 170 starter profiles on first
+* downloading the engine + 236 starter profiles on first
   launch, with subsequent requests cached by ETag.
 * per-profile `user-data-dir` so cookies / cache / extensions stay
   isolated.

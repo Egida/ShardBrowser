@@ -86,4 +86,20 @@ export const OS_OPTIONS: { id: string; label: string }[] = [
   { id: "macOS",   label: "macOS"   },
   { id: "Windows", label: "Windows" },
   { id: "Linux",   label: "Linux"   },
+  { id: "Android", label: "Android" },
 ];
+
+// Which selector entry a fingerprint belongs under. A handset's
+// navigator.platform is "Linux armv8l", so matching Linux by prefix would file
+// every phone under it.
+export function osIdFor(platform: string): string {
+  return OS_OPTIONS.find((o) => matchesOs(platform, o.id))?.id ?? platform;
+}
+
+export function matchesOs(platform: string, os: string): boolean {
+  const p = (platform || "").toLowerCase();
+  const isAndroid = p.startsWith("android") || p.startsWith("linux arm");
+  if (os === "Android") return isAndroid;
+  if (os === "Linux") return p.startsWith("linux") && !isAndroid;
+  return p === os.toLowerCase();
+}

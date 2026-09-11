@@ -110,6 +110,7 @@ class Browser:
         cdp: bool = False,
         headless: bool = False,
         extra_args: Optional[list[str]] = None,
+        android_media: bool = False,
         env: Optional[dict[str, str]] = None,
         webrtc: str = "auto",                  # "auto" | "block" | "tcp_only"
         webrtc_public_ip: Optional[str] = None,
@@ -165,8 +166,12 @@ class Browser:
             f"--user-data-dir={udd}",
             "--no-first-run",
         ]
-        if not profile.has_webgpu:
+        # A Linux profile keeps navigator.gpu and answers the adapter request
+        # with nothing, as Chrome on Linux does; the switch removes the object.
+        if not profile.has_webgpu and not profile.claims_linux_desktop:
             argv.append("--disable-features=WebGPU")
+        if android_media and profile.claims_mobile:
+            argv.append("--shardx-android-media")
         if not headless and not cdp:
             argv += ["--restore-last-session", "--hide-crash-restore-bubble"]
         # Engine-side real-screen switch only fires on use_host (where the

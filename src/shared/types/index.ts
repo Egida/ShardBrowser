@@ -6,6 +6,7 @@ export type Section =
   | "fingerprints"
   | "extensions"
   | "bookmarks"
+  | "automation"
   | "trash"
   | "patchlog"
   | "settings";

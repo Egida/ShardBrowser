@@ -19,6 +19,8 @@ struct Member {
     profile: String,
     /// Held out without leaving: neither sends nor receives while excluded.
     excluded: bool,
+    /// The box this window may occupy: the layout's only input besides the screen.
+    win: WindowBox,
     tx: mpsc::UnboundedSender<String>,
 }
 
@@ -69,6 +71,45 @@ struct Hello {
     token: String,
     #[serde(default)]
     profile: String,
+    /// Absent from an older engine: an all-zero box means no preference, and
+    /// that member is laid out the way it always was.
+    #[serde(default)]
+    win: WindowBox,
+}
+
+/// The size a member's window may be. Reported by the browser: only it knows
+/// the screen the profile claims and whether that profile is a handset.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+pub struct WindowBox {
+    /// The size the window came up at, in DIP.
+    #[serde(default)]
+    pub w: i32,
+    #[serde(default)]
+    pub h: i32,
+    /// The screen the profile claims — the OS refuses anything larger.
+    #[serde(default)]
+    pub max_w: i32,
+    #[serde(default)]
+    pub max_h: i32,
+    /// A handset: its page area IS its screen, so it cannot be resized at all.
+    #[serde(default)]
+    pub fixed: bool,
+}
+
+impl WindowBox {
+    /// Size for a slot `cap` wide and tall: never past the claimed screen (the
+    /// OS refuses that, which left gaps in a phone fleet), and a handset is fixed.
+    fn size_for(&self, cap_w: i32, cap_h: i32) -> (i32, i32) {
+        if self.w <= 0 || self.h <= 0 {
+            return (cap_w.max(1), cap_h.max(1));
+        }
+        if self.fixed {
+            return (self.w, self.h);
+        }
+        let ceil_w = if self.max_w > 0 { self.max_w } else { self.w };
+        let ceil_h = if self.max_h > 0 { self.max_h } else { self.h };
+        (cap_w.clamp(1, ceil_w), cap_h.clamp(1, ceil_h))
+    }
 }
 
 /// How to lay the group's windows out on screen.
@@ -143,6 +184,7 @@ impl Bus {
                 id,
                 profile: hello.profile.clone(),
                 excluded: false,
+                win: hello.win,
                 tx,
             });
             // A member joining a suspended group must not start acting.
@@ -239,27 +281,89 @@ impl Bus {
         let Some(members) = st.groups.get(group) else {
             return;
         };
-        let n = members.len() as i32;
+        let n = members.len();
         if n == 0 {
             return;
         }
         let (ax, ay, aw, ah) = area;
-        for (i, m) in members.iter().enumerate() {
-            let i = i as i32;
-            let (x, y, w, h) = match layout {
-                Layout::Row => (ax + aw * i / n, ay, aw / n, ah),
-                Layout::Grid => {
-                    let cols = (n as f64).sqrt().ceil() as i32;
-                    let rows = (n + cols - 1) / cols;
-                    let (cx, cy) = (i % cols, i / cols);
-                    (ax + aw * cx / cols, ay + ah * cy / rows, aw / cols, ah / rows)
+
+        // Level the heights first: desktop profiles claim different screens, so
+        // untouched they make a ragged row. Handsets cannot resize, so no vote.
+        let flexible: Vec<&Member> = members.iter().filter(|m| !m.win.fixed).collect();
+        let level_h = flexible
+            .iter()
+            .map(|m| {
+                let ceil = if m.win.max_h > 0 { m.win.max_h } else { m.win.h };
+                if ceil > 0 { ceil } else { ah }
+            })
+            .min()
+            .unwrap_or(ah)
+            .min(ah);
+
+        let cols = match layout {
+            Layout::Row => n,
+            Layout::Grid => (n as f64).sqrt().ceil() as usize,
+            Layout::Cascade => n,
+        };
+        let rows = match layout {
+            Layout::Cascade => 1,
+            _ => n.div_ceil(cols.max(1)),
+        };
+
+        // Sizes first: a row cannot be packed before its widths are known.
+        let sizes: Vec<(i32, i32)> = members
+            .iter()
+            .map(|m| {
+                let cap_w = match layout {
+                    Layout::Cascade => aw * 3 / 4,
+                    _ => aw / cols.max(1) as i32,
+                };
+                let cap_h = match layout {
+                    Layout::Cascade => ah * 3 / 4,
+                    _ => (ah / rows.max(1) as i32).min(level_h),
+                };
+                m.win.size_for(cap_w, cap_h)
+            })
+            .collect();
+
+        // Packed left to right at their own size, wrapping when the next will
+        // not fit; scaling one down would ask for a size the device cannot make.
+        let mut placed: Vec<(i32, i32, i32, i32)> = Vec::with_capacity(n);
+        match layout {
+            Layout::Cascade => {
+                let step = 32.min(ah / (n as i32 + 1).max(1));
+                for (i, (w, h)) in sizes.iter().enumerate() {
+                    placed.push((ax + step * i as i32, ay + step * i as i32, *w, *h));
                 }
-                Layout::Cascade => {
-                    // A title bar of offset each; the last must still fit.
-                    let step = 32.min(ah / (n + 1).max(1));
-                    (ax + step * i, ay + step * i, aw * 3 / 4, ah * 3 / 4)
+            }
+            _ => {
+                let mut x = ax;
+                let mut y = ay;
+                let mut row_h = 0;
+                for (w, h) in &sizes {
+                    if x > ax && x + w > ax + aw {
+                        x = ax;
+                        y += row_h;
+                        row_h = 0;
+                    }
+                    placed.push((x, y, *w, *h));
+                    x += w;
+                    row_h = row_h.max(*h);
                 }
-            };
+                // A single row wider than the screen: overlap evenly so every
+                // title bar stays reachable instead of the tail hanging off.
+                let total: i32 = sizes.iter().map(|(w, _)| *w).sum();
+                if rows == 1 && total > aw && n > 1 {
+                    let step = (aw - sizes[n - 1].0).max(0) / (n as i32 - 1);
+                    for (i, slot) in placed.iter_mut().enumerate() {
+                        slot.0 = ax + step * i as i32;
+                        slot.1 = ay;
+                    }
+                }
+            }
+        }
+
+        for (m, (x, y, w, h)) in members.iter().zip(placed) {
             let line = format!(
                 "{{\"bounds\":{{\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}},\"activate\":true}}\n"
             );

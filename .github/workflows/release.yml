@@ -112,15 +112,43 @@ jobs:
       - name: npm install
         run: npm ci
 
+      # Secrets cannot be read in an `if:` directly, so the answer is turned
+      # into a step output first.
+      - name: Signing available?
+        id: signing
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
+            echo "apple=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "apple=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Gatekeeper wants three things and accepts no two of them: a Developer ID
+      # signature, the hardened runtime, and notarization. Tauri does all three
+      # when these are set — it makes a temporary keychain from APPLE_CERTIFICATE,
+      # signs with the hardened runtime, then submits and staples.
+      - name: Build Tauri bundle (signed + notarized)
+        if: runner.os == 'macOS' && steps.signing.outputs.apple == 'yes'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ github.workspace }}/AuthKey.p8
+        shell: bash
+        run: |
+          printf '%s' "${{ secrets.APPLE_API_KEY_P8 }}" > "$APPLE_API_KEY_PATH"
+          npx tauri build --target ${{ matrix.target }}
+          rm -f "$APPLE_API_KEY_PATH"
+
       - name: Build Tauri bundle (unsigned)
-        # No Apple Developer ID / Authenticode cert in this repo, so bundles
-        # ship unsigned / un-notarized. (Ad-hoc signing wouldn't help: it only
-        # avoids the "app is damaged" error, not the "Apple could not verify…"
-        # notarization block — which needs a paid Developer ID.) The Tauri
-        # bundler only skips codesign / signtool when the signing env vars are
-        # UNSET — an *empty* string makes it import a cert and crash, so we set
-        # nothing here. macOS users clear the quarantine flag on first launch
-        # (`xattr -dr com.apple.quarantine`, see release notes / README).
+        if: runner.os != 'macOS' || steps.signing.outputs.apple != 'yes'
+        # The Tauri bundler skips codesign / signtool only when the signing env
+        # vars are UNSET — an empty string makes it import a cert and crash — so
+        # this step sets nothing at all. Users clear the quarantine flag by hand
+        # (`xattr -dr com.apple.quarantine`, see the release notes).
         run: npx tauri build --target ${{ matrix.target }}
 
       - name: Collect bundles

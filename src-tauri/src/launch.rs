@@ -57,6 +57,11 @@ pub async fn launch_profile_synced(
     bus_port: u16,
     bus_token: &str,
 ) -> Result<LaunchOutcome> {
+    // One browser per profile: two children sharing a user-data dir corrupt each other's
+    // state, and the second displaces the first in the tracker, leaving it unstoppable.
+    if Tracker::shared().is_running(profile_id) {
+        anyhow::bail!("profile {profile_id} is already running");
+    }
     let bin = resolve_binary()?;
     let stored = profile::load_raw(profile_id)?;
     let udd = profile::user_data_dir(profile_id)?;
@@ -97,13 +102,25 @@ pub async fn launch_profile_synced(
     let mut raw = stored.config.clone();
     raw.remove("_meta");
     resolve_auto_fields(&mut raw, bound_proxy.as_ref()).await;
+    // A profile made on another machine carries that machine's screen; on Win/Linux
+    // the window has to fit this monitor. "real" mode skips — the core drops it anyway.
+    if settings::load()?.screen_resolution_mode.as_deref() != Some("real") {
+        if let Some(w) = crate::main_window() {
+            crate::clamp_screen_to_real_display(&w, &mut raw);
+        }
+    }
     let json = serde_json::to_string(&raw).context("serialize profile")?;
 
     // Pass fingerprint by file path — inline JSON overflows Windows' 32767-char CreateProcess limit.
     let fp_file = udd.join("fingerprint.json");
     std::fs::write(&fp_file, &json).context("write fingerprint.json")?;
 
-    // Pre-warm Widevine CDM to avoid first-DRM-page component-updater stall.
+    // Keep whatever CDM an engine has already fetched for itself, then hand it
+    // to this profile. The first profile to open a DRM page downloads one; every
+    // profile after that starts with it in place.
+    if let Err(e) = harvest_widevine(&udd) {
+        eprintln!("[launcher] widevine harvest skipped: {e}");
+    }
     if let Err(e) = install_widevine(&udd) {
         eprintln!("[launcher] widevine pre-warm skipped: {e}");
     }
@@ -275,10 +292,31 @@ pub async fn launch_profile_synced(
         let _ = std::fs::remove_file(udd.join("DevToolsActivePort"));
         cmd.arg("--remote-debugging-port=0");
         cmd.arg("--remote-allow-origins=*");
+        // Gates the Motion domain, which every automated click and keystroke goes
+        // through. Free when unused: it is absent from Schema.getDomains and /json/protocol.
+        cmd.arg("--shardx-automation");
     }
 
     if headless {
         cmd.arg("--headless=new");
+    }
+
+    // Pin X11 (XWayland under Wayland): a Wayland client may not place its own windows,
+    // so SetBounds moves nothing. Not without DISPLAY — forcing x11 then opens no window.
+    #[cfg(target_os = "linux")]
+    {
+        let chosen = settings::parse_extra_args(&s.extra_args)
+            .iter()
+            .any(|a| a.starts_with("--ozone-platform"));
+        if !chosen && std::env::var_os("DISPLAY").is_some() {
+            cmd.arg("--ozone-platform=x11");
+        }
+    }
+
+    // Answer media questions the Android way. Gated on the profile claiming a phone
+    // as well as on the setting: the flag does nothing in the engine on a desktop one.
+    if stored.meta.android_media && profile::claims_mobile(&stored.config) {
+        cmd.arg("--shardx-android-media");
     }
 
     // Operator's own switches, last so they win a repeat.
@@ -512,6 +550,58 @@ async fn resolve_auto_fields(
             cfg.remove("geolocation");
         }
     }
+}
+
+/// Version string as numbers, so "4.10.2891.0" sorts above "4.9.9999.0".
+fn cdm_version(v: &str) -> Vec<u64> {
+    v.split('.').map(|p| p.parse().unwrap_or(0)).collect()
+}
+
+fn cdm_version_of(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
+    let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
+    manifest.get("version")?.as_str().map(String::from)
+}
+
+/// Take the CDM the engine downloaded for itself into the cache, so the next
+/// profile does not have to download its own. The engine's component updater is
+/// the only thing that writes `<udd>/WidevineCdm/<version>/`, and it keeps that
+/// copy current — which is why the CDM is not shipped from the CDN at all: its
+/// version would have to be chased there forever.
+fn harvest_widevine(udd: &Path) -> Result<()> {
+    let root = udd.join("WidevineCdm");
+    if !root.exists() {
+        return Ok(());
+    }
+    let mut newest: Option<(Vec<u64>, String, PathBuf)> = None;
+    for entry in std::fs::read_dir(&root)?.flatten() {
+        let p = entry.path();
+        if !p.is_dir() {
+            continue;
+        }
+        let Some(version) = cdm_version_of(&p) else { continue };
+        let parsed = cdm_version(&version);
+        if newest.as_ref().is_none_or(|(best, _, _)| parsed > *best) {
+            newest = Some((parsed, version, p));
+        }
+    }
+    let Some((found, version, src)) = newest else { return Ok(()) };
+
+    let cache = store::widevine_cache_dir()?;
+    if let Some(have) = cdm_version_of(&cache) {
+        if cdm_version(&have) >= found {
+            return Ok(());
+        }
+    }
+    // Into a sibling first: a half-copied cache is worse than none, because
+    // install_widevine reads it without knowing it is unfinished.
+    let staging = cache.with_extension("incoming");
+    let _ = std::fs::remove_dir_all(&staging);
+    copy_dir_recursive(&src, &staging)?;
+    let _ = std::fs::remove_dir_all(&cache);
+    std::fs::rename(&staging, &cache)?;
+    eprintln!("[launcher] widevine cached from a profile: {version}");
+    Ok(())
 }
 
 /// Copy cached Widevine CDM into `<udd>/WidevineCdm/<version>/` (versioned layout

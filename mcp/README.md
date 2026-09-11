@@ -79,6 +79,24 @@ MCP_HTTP_PORT=40326 SHARDX_API=http://127.0.0.1:40325 SHARDX_TOKEN=… node inde
 - `list_fingerprints`, `list_folders`, `rename_folder`, `delete_folder`
 - `export_cookies`, `import_cookies`
 
+**Automation projects** — the projects the launcher's Automation section
+builds. A project drives its own browsers through the Motion domain, so these
+work whether or not a profile is running:
+
+- `list_automation_projects`, `get_automation_project(id)`,
+  `create_automation_project(name?)`,
+  `save_automation_project(id, project)` — whole-project replace, send back
+  what `get` returned with `blocks` and `run` edited
+- `duplicate_automation_project(id)`, `delete_automation_project(id)`
+- `export_automation_project(id)` / `import_automation_project(bundle)` —
+  export empties every parameter the project marked secret and lists them
+  under `needs`
+- `run_automation_project(id)`, `stop_automation_project(id)`,
+  `automation_status(id)`, `list_automation_runs`
+- `list_automation_modules`, `install_automation_module(path)`,
+  `remove_automation_module(id)` — WebAssembly modules, each contributing
+  blocks under the kind `module:<module id>:<block>`
+
 **Browser (CDP via patchright)** — auto-starts the profile (CDP, optional
 headless) if it isn't running; actions target the profile's *active* tab:
 

@@ -7,7 +7,7 @@ import { ChevronDownIcon, InfoIcon } from "../../../shared/icons";
 import { toast } from "../../../shared/model/toast";
 import { randSid } from "../../../shared/lib/utils";
 import type { ResiType, PsLoc } from "../../../entities/proxyshard";
-import { PS_PLAN, PS_PROXY_TYPE, PS_RELAYS, PS_PORT, psProfileTraffic, psCountries, psRegions, psCities } from "../../../entities/proxyshard";
+import { PS_PLAN, PS_PROXY_TYPE, PS_RELAYS, PS_PORT, psProfileTraffic, psCountries, psRegions, psCities, psResiIsps } from "../../../entities/proxyshard";
 import { proxyBulkSave } from "../../../entities/proxy";
 
 
@@ -70,10 +70,11 @@ export function PsResiGenerator({ type, onClose }: { type: ResiType; onClose: ()
   const [count, setCount] = useState(1);
   const [prefix, setPrefix] = useState(`${type} resi`);
   const [sessionMode, setSessionMode] = useState<"default" | "static">("default");
-  // setPof is unused today — the generator reads `pof` when building the
-  // session string but nothing changes it yet.  Kept as state (not a const)
-  // so wiring the OS selector back up is a one-line change.
-  const [pof] = useState<"unset" | "macos" | "windows" | "android" | "linux" | "ios">("unset");
+  // The OS the exit device should look like. Premium only — the other plans
+  // ignore the token, so the field is not offered there and is dropped if the
+  // dialog is reopened on a cheaper plan.
+  const [pof, setPof] = useState<"unset" | "macos" | "windows" | "android" | "linux" | "ios">("unset");
+  const canPickOs = type === "premium";
   const [showAdvanced, setShowAdvanced] = useState(false);
 
 
@@ -83,6 +84,8 @@ export function PsResiGenerator({ type, onClose }: { type: ResiType; onClose: ()
   const [region, setRegion] = useState("");
   const [cities, setCities] = useState<PsLoc[]>([]);
   const [city, setCity] = useState("");
+  const [isps, setIsps] = useState<PsLoc[]>([]);
+  const [isp, setIsp] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -100,25 +103,33 @@ export function PsResiGenerator({ type, onClose }: { type: ResiType; onClose: ()
 
   // Region depends on country; city depends on region.
   useEffect(() => {
-    setRegion(""); setRegions([]); setCity(""); setCities([]);
+    setRegion(""); setRegions([]); setCity(""); setCities([]); setIsp(""); setIsps([]);
     if (!country) return;
     psRegions(pt, country)
       .then((r) => setRegions(r.results ?? [])).catch(() => { });
   }, [country]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    setCity(""); setCities([]);
+    setCity(""); setCities([]); setIsp(""); setIsps([]);
     if (!country || !region) return;
     psCities(pt, country, region)
       .then((r) => setCities(r.results ?? [])).catch(() => { });
   }, [region]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ISP directory is per-city and premium-only.
+  useEffect(() => {
+    setIsp(""); setIsps([]);
+    if (type !== "premium" || !country || !region || !city) return;
+    psResiIsps(pt, country, region, city)
+      .then((r) => setIsps(r.results ?? [])).catch(() => { });
+  }, [city]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const buildUser = (sid: string | null) => {
     const parts = [`plan-${plan}`];
     if (country) parts.push(`country-${country.toLowerCase()}`);
     if (region) parts.push(`region-${region}`);
     if (city) parts.push(`city-${city}`);
+    if (isp) parts.push(`isp-${isp}`);
     if (sid) parts.push(`sid-${sid}`);
-    if (pof && pof !== "unset") parts.push(`os-${pof}`);
+    if (canPickOs && pof !== "unset") parts.push(`os-${pof}`);
     if (sessionMode === "default") parts.push("session_mode-2");
     return parts.join("-");
   };
@@ -223,11 +234,11 @@ export function PsResiGenerator({ type, onClose }: { type: ResiType; onClose: ()
           {
             type === "premium" && (
               <CSSelect
-                value={city}
-                title={"Device OS"}
-                onChange={setCity}
-                placeholder={"Select device OS"}
-                options={POF_OPTIONS}
+                value={isp}
+                title={"ISP"}
+                onChange={setIsp}
+                placeholder={city ? "Any ISP" : "Pick city first"}
+                options={[{ value: "", label: "Any" }, ...isps.map((x) => ({ value: x.code, label: x.name }))]}
               />
             )
           }
@@ -253,6 +264,25 @@ export function PsResiGenerator({ type, onClose }: { type: ResiType; onClose: ()
               </button>
             )
           }
+          {showAdvanced && canPickOs && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <span className="text-label-base font-medium text-text-strong-900">Operating system</span>
+                <Tooltip
+                  content="Asks for an exit device whose network fingerprint matches that system. Premium plans only."
+                  side="top"
+                  className="left-20"
+                >
+                  <InfoIcon className="size-4 cursor-help text-text-soft-400" />
+                </Tooltip>
+              </div>
+              <CSSelect
+                value={pof}
+                onChange={(v) => setPof(v as typeof pof)}
+                options={POF_OPTIONS}
+              />
+            </div>
+          )}
           {showAdvanced && (
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-1">

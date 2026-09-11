@@ -816,11 +816,217 @@ fn random_fingerprint_for(platform: Option<&str>) -> Result<String, ApiError> {
     Ok(pool[idx].id.clone())
 }
 
+// ---- automation ----
+//
+// Storage answers in every build; running only where the `automation` feature
+// is compiled in.
+
+async fn list_projects() -> ApiResult {
+    let list = crate::automation::list()
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(serde_json::to_value(list).unwrap_or(Value::Null)))
+}
+
+#[derive(Deserialize)]
+struct CreateProjectReq {
+    #[serde(default)]
+    name: String,
+}
+
+async fn create_project(body: Option<Json<CreateProjectReq>>) -> ApiResult {
+    let name = body.map(|Json(b)| b.name).unwrap_or_default();
+    let project = crate::automation::create(&name)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::notify_store_changed("automation");
+    Ok(Json(serde_json::to_value(project).unwrap_or(Value::Null)))
+}
+
+fn find_project(id: &str) -> Result<crate::automation::Project, ApiError> {
+    crate::automation::list()
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .into_iter()
+        .find(|p| p.id == id)
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "no such project"))
+}
+
+async fn get_project(Path(id): Path<String>) -> ApiResult {
+    Ok(Json(serde_json::to_value(find_project(&id)?).unwrap_or(Value::Null)))
+}
+
+/// Whole-project replace. The id in the path wins over the body's, and an
+/// unknown id is a 404 rather than a silent create.
+async fn save_project(Path(id): Path<String>, Json(mut body): Json<Value>) -> ApiResult {
+    find_project(&id)?;
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("id".into(), Value::String(id.clone()));
+    }
+    let project: crate::automation::Project = serde_json::from_value(body)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, format!("that is not a project: {e}")))?;
+    let saved = crate::automation::save(project)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::notify_store_changed("automation");
+    Ok(Json(serde_json::to_value(saved).unwrap_or(Value::Null)))
+}
+
+async fn delete_project(Path(id): Path<String>) -> ApiResult {
+    find_project(&id)?;
+    crate::automation::delete(&id)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::notify_store_changed("automation");
+    Ok(Json(json!({ "deleted": true, "id": id })))
+}
+
+async fn duplicate_project(Path(id): Path<String>) -> ApiResult {
+    let copy = crate::automation::duplicate(&id)
+        .map_err(|e| err(StatusCode::NOT_FOUND, e.to_string()))?;
+    crate::notify_store_changed("automation");
+    Ok(Json(serde_json::to_value(copy).unwrap_or(Value::Null)))
+}
+
+/// Export strips every parameter marked secret, so a bundle carries no passwords.
+async fn export_project(Path(id): Path<String>) -> ApiResult {
+    let bundle = crate::automation::export(&id)
+        .map_err(|e| err(StatusCode::NOT_FOUND, e.to_string()))?;
+    Ok(Json(serde_json::to_value(bundle).unwrap_or(Value::Null)))
+}
+
+async fn import_project(Json(body): Json<Value>) -> ApiResult {
+    let bundle: crate::automation::Bundle = serde_json::from_value(body)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, format!("that is not a project bundle: {e}")))?;
+    let project = crate::automation::import(bundle)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, e.to_string()))?;
+    crate::notify_store_changed("automation");
+    Ok(Json(serde_json::to_value(project).unwrap_or(Value::Null)))
+}
+
+/// Answers as soon as the run is under way; progress comes from `/status`.
+async fn run_project(Path(id): Path<String>) -> ApiResult {
+    #[cfg(feature = "automation")]
+    {
+        find_project(&id)?;
+        crate::runner::start(&id)
+            .await
+            .map_err(|e| err(StatusCode::BAD_REQUEST, e.to_string()))?;
+        return Ok(Json(json!({ "project_id": id, "running": true })));
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = id;
+        Err(err(StatusCode::NOT_IMPLEMENTED, "automation is not compiled into this build"))
+    }
+}
+
+/// Asks the run to stop. The browsers it started close on their own once the
+/// step they are in finishes, so a run does not vanish the instant this answers.
+async fn stop_project(Path(id): Path<String>) -> ApiResult {
+    #[cfg(feature = "automation")]
+    {
+        crate::runner::stop(&id);
+        return Ok(Json(json!({ "project_id": id, "stopping": true })));
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = id;
+        Err(err(StatusCode::NOT_IMPLEMENTED, "automation is not compiled into this build"))
+    }
+}
+
+/// The run's state, or null when the project is not running and has not run
+/// since the launcher started.
+async fn project_status(Path(id): Path<String>) -> ApiResult {
+    #[cfg(feature = "automation")]
+    {
+        return Ok(Json(
+            serde_json::to_value(crate::runner::status(&id)).unwrap_or(Value::Null),
+        ));
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = id;
+        Err(err(StatusCode::NOT_IMPLEMENTED, "automation is not compiled into this build"))
+    }
+}
+
+/// Every run going right now — what the fleet window shows.
+async fn list_runs() -> ApiResult {
+    #[cfg(feature = "automation")]
+    {
+        return Ok(Json(serde_json::to_value(crate::runner::all()).unwrap_or(Value::Null)));
+    }
+    #[cfg(not(feature = "automation"))]
+    Err(err(StatusCode::NOT_IMPLEMENTED, "automation is not compiled into this build"))
+}
+
+async fn list_modules() -> ApiResult {
+    #[cfg(feature = "automation")]
+    {
+        let list = crate::wasm::list()
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        return Ok(Json(serde_json::to_value(list).unwrap_or(Value::Null)));
+    }
+    #[cfg(not(feature = "automation"))]
+    Err(err(StatusCode::NOT_IMPLEMENTED, "automation is not compiled into this build"))
+}
+
+#[derive(Deserialize)]
+struct InstallModuleReq {
+    path: String,
+}
+
+/// `path` is a .wasm file on this machine; the API is local and a module is
+/// native code the operator built themselves.
+async fn install_module(Json(body): Json<InstallModuleReq>) -> ApiResult {
+    #[cfg(feature = "automation")]
+    {
+        if body.path.trim().is_empty() {
+            return Err(err(StatusCode::BAD_REQUEST, "`path` required"));
+        }
+        let info = crate::wasm::install(body.path.trim())
+            .map_err(|e| err(StatusCode::BAD_REQUEST, format!("{e:#}")))?;
+        return Ok(Json(serde_json::to_value(info).unwrap_or(Value::Null)));
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = body.path;
+        Err(err(StatusCode::NOT_IMPLEMENTED, "automation is not compiled into this build"))
+    }
+}
+
+async fn remove_module(Path(id): Path<String>) -> ApiResult {
+    #[cfg(feature = "automation")]
+    {
+        crate::wasm::remove(&id)
+            .map_err(|e| err(StatusCode::NOT_FOUND, e.to_string()))?;
+        return Ok(Json(json!({ "deleted": true, "id": id })));
+    }
+    #[cfg(not(feature = "automation"))]
+    {
+        let _ = id;
+        Err(err(StatusCode::NOT_IMPLEMENTED, "automation is not compiled into this build"))
+    }
+}
+
 // ---- server ----
 
 pub async fn serve(secret: String, port: u16) {
     set_secret(&secret);
+    let app = router();
 
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => {
+            eprintln!("[launcher] automation API listening on http://{addr}");
+            if let Err(e) = axum::serve(listener, app).await {
+                eprintln!("[launcher] API server error: {e}");
+            }
+        }
+        Err(e) => eprintln!("[launcher] API bind {addr} failed: {e}"),
+    }
+}
+
+/// Every route, assembled. Split out so a test can build it: axum only catches
+/// two routes on one path at construction, and that is a panic at startup.
+fn router() -> Router {
     let protected = Router::new()
         .route("/profiles", get(list_profiles).post(create_profile))
         .route("/profiles/temporary", post(create_temporary))
@@ -844,20 +1050,66 @@ pub async fn serve(secret: String, port: u16) {
         .route("/trash", get(list_trash))
         .route("/trash/:id", delete(purge_trash))
         .route("/trash/:id/restore", post(restore_trash))
+        .route("/automation/projects", get(list_projects).post(create_project))
+        .route(
+            "/automation/projects/:id",
+            get(get_project).put(save_project).delete(delete_project),
+        )
+        .route("/automation/projects/:id/duplicate", post(duplicate_project))
+        .route("/automation/projects/:id/export", get(export_project))
+        .route("/automation/projects/:id/run", post(run_project))
+        .route("/automation/projects/:id/stop", post(stop_project))
+        .route("/automation/projects/:id/status", get(project_status))
+        .route("/automation/import", post(import_project))
+        .route("/automation/runs", get(list_runs))
+        .route("/automation/modules", get(list_modules).post(install_module))
+        .route("/automation/modules/:id", delete(remove_module))
         .route_layer(middleware::from_fn(auth));
 
-    let app = Router::new()
-        .route("/health", get(health))
-        .merge(protected);
+    Router::new().route("/health", get(health)).merge(protected)
+}
 
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    match tokio::net::TcpListener::bind(addr).await {
-        Ok(listener) => {
-            eprintln!("[launcher] automation API listening on http://{addr}");
-            if let Err(e) = axum::serve(listener, app).await {
-                eprintln!("[launcher] API server error: {e}");
-            }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    /// Two routes on one path panic when the router is built, so building it
+    /// is the whole test.
+    #[test]
+    fn router_builds() {
+        let _ = router();
+    }
+
+    #[tokio::test]
+    async fn automation_needs_a_token() {
+        for (method, path) in [
+            ("GET", "/automation/projects"),
+            ("GET", "/automation/runs"),
+            ("POST", "/automation/projects/x/run"),
+            ("GET", "/automation/modules"),
+        ] {
+            let req = Request::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            let res = router().oneshot(req).await.unwrap();
+            assert_eq!(
+                res.status(),
+                StatusCode::UNAUTHORIZED,
+                "{method} {path} answered without a token"
+            );
         }
-        Err(e) => eprintln!("[launcher] API bind {addr} failed: {e}"),
+    }
+
+    /// `/health` is the one route that stays open, for probing before a token.
+    #[tokio::test]
+    async fn health_stays_open() {
+        let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
+        let res = router().oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
     }
 }

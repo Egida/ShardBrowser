@@ -13,6 +13,7 @@ import {
   NavExtensionsIcon,
   NavBookmarksIcon,
   NavTrashIcon,
+  NavAutomationIcon,
   CopyIcon,
   DocsIcon,
   ShardLogo,
@@ -82,6 +83,7 @@ export function Sidebar() {
         { id: "browsers", label: "Browsers", svg: <NavBrowsersIcon className="size-[18px]" /> },
         { id: "proxies", label: "Proxies", svg: <RouteIcon className="size-[18px]" /> },
         { id: "proxyshard", label: "ProxyShard", svg: <NavShopIcon className="size-[18px]" /> },
+        { id: "automation", label: "Automation", svg: <NavAutomationIcon className="size-[18px]" /> },
       ],
     },
     {

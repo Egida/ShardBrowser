@@ -171,7 +171,21 @@ jobs:
           printf '%s' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY_PATH"
           chmod 600 "$APPLE_API_KEY_PATH"
           trap 'rm -f "$APPLE_API_KEY_PATH"' EXIT
-          npx tauri build --target ${{ matrix.target }}
+          # Notarization is a submit and then a poll of Apple's service, and the
+          # poll is the fragile half: a runner that loses its route for a moment
+          # fails the whole build with NSURLErrorNotConnectedToInternet after the
+          # package was already uploaded. A retry costs little — the Rust binary
+          # is already built, so the attempt re-bundles, re-signs and submits
+          # again rather than compiling anything.
+          for attempt in 1 2 3; do
+            if npx tauri build --target ${{ matrix.target }}; then
+              exit 0
+            fi
+            echo "::warning::bundle attempt $attempt failed; retrying in 60s"
+            sleep 60
+          done
+          echo "::error::bundling failed three times"
+          exit 1
 
       - name: Build Tauri bundle (unsigned)
         if: runner.os != 'macOS' || steps.signing.outputs.apple != 'yes'

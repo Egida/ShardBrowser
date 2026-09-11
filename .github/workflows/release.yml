@@ -57,6 +57,12 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     name: build (${{ matrix.label }})
+    # The Apple signing secrets live in an environment of this name, and an
+    # environment's secrets reach a job only when the job names it — without
+    # this line they read back as empty strings and the build goes out unsigned.
+    # If protection rules are ever added to it, every run here waits for
+    # approval, including the Linux and Windows legs.
+    environment: APPLE_CERTIFICATE
 
     steps:
       - name: Checkout
@@ -117,11 +123,29 @@ jobs:
       - name: Signing available?
         id: signing
         shell: bash
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          API_KEY: ${{ secrets.APPLE_API_KEY }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          API_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
-          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
+          # Presence only — never the values, which the log would keep.
+          missing=""
+          for name in CERT CERT_PASSWORD IDENTITY API_KEY API_ISSUER API_P8; do
+            if [ -n "${!name}" ]; then
+              echo "$name: set"
+            else
+              echo "$name: MISSING"
+              missing="$missing $name"
+            fi
+          done
+          if [ -z "$missing" ]; then
             echo "apple=yes" >> "$GITHUB_OUTPUT"
           else
             echo "apple=no" >> "$GITHUB_OUTPUT"
+            echo "::warning::building unsigned — no value for:$missing (Settings → Secrets and variables → Actions → Repository secrets)"
           fi
 
       # Gatekeeper wants three things and accepts no two of them: a Developer ID
@@ -136,12 +160,18 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ${{ github.workspace }}/AuthKey.p8
+          # Outside the checkout: a later step that globs the workspace must not
+          # be able to sweep the notarization key into an artifact.
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         shell: bash
         run: |
-          printf '%s' "${{ secrets.APPLE_API_KEY_P8 }}" > "$APPLE_API_KEY_PATH"
+          # Through the environment, not interpolated into the command line,
+          # which `ps` on the runner would show.
+          printf '%s' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY_PATH"
+          chmod 600 "$APPLE_API_KEY_PATH"
+          trap 'rm -f "$APPLE_API_KEY_PATH"' EXIT
           npx tauri build --target ${{ matrix.target }}
-          rm -f "$APPLE_API_KEY_PATH"
 
       - name: Build Tauri bundle (unsigned)
         if: runner.os != 'macOS' || steps.signing.outputs.apple != 'yes'

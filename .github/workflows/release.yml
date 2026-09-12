@@ -192,28 +192,48 @@ jobs:
           [ -n "$dmg" ] || { echo "::error::no .dmg to notarize"; exit 1; }
           echo "submitting $dmg"
 
-          # No --timeout: Apple's queue took two hours for the first submission
-          # from this team, and cutting that off would fail a build that was
-          # going to pass. The job's own limit is the backstop.
+          creds=(--key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY"
+                 --issuer "$APPLE_API_ISSUER" --output-format json)
+          field() { python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1],""))' "$1"; }
+
+          # Submitted ONCE. `--wait` was doing the polling itself, and a single
+          # poll that times out (-1001) takes the whole command down with it —
+          # after which a retry uploads the package again and joins the back of
+          # Apple's queue, having thrown away a place that was already waiting.
+          # So: submit, keep the id, and do the waiting here, where one failed
+          # request is just a request to make again.
           for attempt in 1 2 3; do
-            if xcrun notarytool submit "$dmg" \
-                 --key "$APPLE_API_KEY_PATH" \
-                 --key-id "$APPLE_API_KEY" \
-                 --issuer "$APPLE_API_ISSUER" \
-                 --wait; then
-              xcrun stapler staple "$dmg"
-              xcrun stapler validate "$dmg"
-              exit 0
-            fi
-            # The submit itself is one request and the wait is a poll; a runner
-            # that loses its route for a moment fails the poll with
-            # NSURLErrorNotConnectedToInternet after the upload already
-            # succeeded, which is worth one more try.
-            echo "::warning::notarization attempt $attempt failed; retrying in 60s"
+            id=$(xcrun notarytool submit "$dmg" "${creds[@]}" | field id) && [ -n "$id" ] && break
+            echo "::warning::submit attempt $attempt failed; retrying in 60s"
             sleep 60
           done
-          echo "::error::notarization failed three times"
-          exit 1
+          [ -n "$id" ] || { echo "::error::could not submit for notarization"; exit 1; }
+          echo "submission $id — waiting for Apple"
+
+          # No deadline of our own: the first submission from this team sat in
+          # the queue for two hours and was then accepted, so a cutoff would
+          # fail builds that were going to pass. The job's own limit ends it.
+          while true; do
+            sleep 60
+            info=$(xcrun notarytool info "$id" "${creds[@]}" 2>/dev/null) || {
+              echo "status request failed — asking again in a minute"
+              continue
+            }
+            status=$(printf '%s' "$info" | field status)
+            case "$status" in
+              Accepted)
+                xcrun stapler staple "$dmg"
+                xcrun stapler validate "$dmg"
+                exit 0 ;;
+              Invalid|Rejected)
+                echo "::error::Apple rejected the package"
+                xcrun notarytool log "$id" --key "$APPLE_API_KEY_PATH" \
+                  --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" || true
+                exit 1 ;;
+              *)
+                echo "  $status" ;;
+            esac
+          done
 
       - name: Build Tauri bundle (unsigned)
         if: runner.os != 'macOS' || steps.signing.outputs.apple != 'yes'

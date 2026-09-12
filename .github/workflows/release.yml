@@ -152,14 +152,29 @@ jobs:
       # signature, the hardened runtime, and notarization. Tauri does all three
       # when these are set — it makes a temporary keychain from APPLE_CERTIFICATE,
       # signs with the hardened runtime, then submits and staples.
-      - name: Build Tauri bundle (signed + notarized)
+      # Signed here, notarized in the next step. Tauri notarizes each bundle it
+      # produces, and `targets: all` produces two on macOS — the .app and the
+      # .dmg — so a build queued twice behind Apple's notary service and ran
+      # past the job's six-hour limit. Only the credentials for SIGNING are
+      # given here; without the API key Tauri signs and leaves notarization
+      # alone.
+      - name: Build Tauri bundle (signed)
         if: runner.os == 'macOS' && steps.signing.outputs.apple == 'yes'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        shell: bash
+        run: npx tauri build --target ${{ matrix.target }}
+
+      # One submission, for the file people actually download. The .app inside
+      # the image carries the same signature, and stapling the image is what
+      # lets Gatekeeper clear it without asking Apple at open time.
+      - name: Notarize the disk image
+        if: runner.os == 'macOS' && steps.signing.outputs.apple == 'yes'
+        env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           # Outside the checkout: a later step that globs the workspace must not
           # be able to sweep the notarization key into an artifact.
           APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
@@ -171,20 +186,33 @@ jobs:
           printf '%s' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY_PATH"
           chmod 600 "$APPLE_API_KEY_PATH"
           trap 'rm -f "$APPLE_API_KEY_PATH"' EXIT
-          # Notarization is a submit and then a poll of Apple's service, and the
-          # poll is the fragile half: a runner that loses its route for a moment
-          # fails the whole build with NSURLErrorNotConnectedToInternet after the
-          # package was already uploaded. A retry costs little — the Rust binary
-          # is already built, so the attempt re-bundles, re-signs and submits
-          # again rather than compiling anything.
+
+          dmg=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/dmg" \
+                  -name '*.dmg' -print -quit)
+          [ -n "$dmg" ] || { echo "::error::no .dmg to notarize"; exit 1; }
+          echo "submitting $dmg"
+
+          # No --timeout: Apple's queue took two hours for the first submission
+          # from this team, and cutting that off would fail a build that was
+          # going to pass. The job's own limit is the backstop.
           for attempt in 1 2 3; do
-            if npx tauri build --target ${{ matrix.target }}; then
+            if xcrun notarytool submit "$dmg" \
+                 --key "$APPLE_API_KEY_PATH" \
+                 --key-id "$APPLE_API_KEY" \
+                 --issuer "$APPLE_API_ISSUER" \
+                 --wait; then
+              xcrun stapler staple "$dmg"
+              xcrun stapler validate "$dmg"
               exit 0
             fi
-            echo "::warning::bundle attempt $attempt failed; retrying in 60s"
+            # The submit itself is one request and the wait is a poll; a runner
+            # that loses its route for a moment fails the poll with
+            # NSURLErrorNotConnectedToInternet after the upload already
+            # succeeded, which is worth one more try.
+            echo "::warning::notarization attempt $attempt failed; retrying in 60s"
             sleep 60
           done
-          echo "::error::bundling failed three times"
+          echo "::error::notarization failed three times"
           exit 1
 
       - name: Build Tauri bundle (unsigned)

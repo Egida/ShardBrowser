@@ -50,6 +50,18 @@ pub fn main_window() -> Option<tauri::WebviewWindow> {
 /// listens for `store-changed` and reloads, so the new items appear without an
 /// app restart.  `kind` ("profiles" | "proxies" | "automation") is informational; the UI
 /// reloads both lists regardless.  No-op when headless (no window).
+/// A warning the user has to see — shown as a toast. stderr is not a place a
+/// user looks, and a profile silently running on the host's clock is worth an
+/// interruption.
+pub fn notify_warning(text: impl Into<String>) {
+    use tauri::Emitter;
+    let text = text.into();
+    eprintln!("[launcher] WARNING: {text}");
+    if let Some(w) = main_window() {
+        let _ = w.emit("launcher-warning", text);
+    }
+}
+
 pub fn notify_store_changed(kind: &str) {
     use tauri::Emitter;
     if let Some(w) = main_window() {
@@ -307,7 +319,7 @@ pub(crate) fn randomize_hardware(payload: &mut serde_json::Map<String, Value>) {
 }
 
 /// Clamp profile.screen to the real display when it's smaller than the FP claim.
-/// On Win/Linux always use the real display (presets rarely match user monitors).
+/// A profile keeps the screen it declares while the real display can hold it.
 pub fn clamp_screen_to_real_display(
     window: &tauri::WebviewWindow,
     payload: &mut serde_json::Map<String, Value>,
@@ -347,14 +359,21 @@ pub fn clamp_screen_to_real_display(
     if fp_w <= 0 || fp_h <= 0 {
         return;
     }
-    // macOS keeps curated FP unless real display smaller; Win/Linux always uses real.
-    if cfg!(target_os = "macos") {
-        if real_w >= fp_w && real_h >= fp_h {
-            eprintln!(
-                "[launcher] display: real {real_w}x{real_h} >= fp {fp_w}x{fp_h} — keeping FP screen (macOS)"
-            );
-            return;
-        }
+    // A screen the profile declares is kept whenever the real display can hold
+    // it; the clamp exists for the other case, where a window simply cannot be
+    // bigger than the monitor it opens on.
+    //
+    // This used to be the macOS rule only, and Windows/Linux overwrote the
+    // declared screen with the host display on every start. That handed every
+    // profile on one machine the SAME high-entropy pair — on a 5120x1440
+    // monitor, all of them said 5120x1440 — which is the opposite of what a
+    // per-profile screen is for, and it ignored what the profile's own API
+    // caller had asked for.
+    if real_w >= fp_w && real_h >= fp_h {
+        eprintln!(
+            "[launcher] display: real {real_w}x{real_h} >= fp {fp_w}x{fp_h} — keeping FP screen"
+        );
+        return;
     }
 
     // Preserve FP menubar/dock insets for avail_*.
@@ -428,6 +447,28 @@ pub fn save_profile_core(
     if is_new && enrich {
         if let Some(obj) = payload.as_object_mut() {
             enrich_new_config(window, obj);
+        }
+    }
+
+    // The editor rebuilds the whole profile from its own form, so a save on top
+    // of a change made elsewhere (the API, a second window) would revert it.
+    // A payload that carries the rev it was opened at is checked against disk;
+    // one that carries none is an internal caller and passes.
+    if !is_new {
+        let meta = payload.get("_meta");
+        let id = meta
+            .and_then(|m| m.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if let Some(sent) = meta.and_then(|m| m.get("rev")).and_then(|v| v.as_u64()) {
+            let on_disk = profile::current_rev(id);
+            if sent != on_disk {
+                return Err(format!(
+                    "This profile changed after you opened it (rev {on_disk}, you have {sent}) \
+                     — probably through the API or another window. Reopen it and apply your \
+                     changes to the current version."
+                ));
+            }
         }
     }
 
@@ -1717,8 +1758,47 @@ fn settings_get() -> Result<settings::Settings, String> {
     settings::load().map_err(|e| e.to_string())
 }
 
+/// The primary monitor in CSS pixels, so the editor can offer resolutions and
+/// refuse the ones this machine cannot actually show. None when there is no
+/// monitor to ask (headless), and the editor then offers the full list.
+#[tauri::command]
+fn host_screen(window: tauri::WebviewWindow) -> Option<(i64, i64)> {
+    let monitor = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())?;
+    let scale = monitor.scale_factor();
+    if scale <= 0.0 {
+        return None;
+    }
+    let phys = monitor.size();
+    let w = (phys.width as f64 / scale).round() as i64;
+    let h = (phys.height as f64 / scale).round() as i64;
+    (w > 0 && h > 0).then_some((w, h))
+}
+
+/// Why the settings file could not be read, for the banner. None = it reads fine.
+#[tauri::command]
+fn settings_load_error() -> Option<String> {
+    settings::load_error()
+}
+
 #[tauri::command]
 fn settings_save(mut value: settings::Settings) -> Result<(), String> {
+    // Saving on top of a file we could not read would write the defaults this
+    // form was filled from over whatever the file actually held — the data
+    // root among them, which is where every profile lives. The banner says
+    // the file was not read; until it is fixed or moved aside, nothing here
+    // gets written.
+    if let Some(err) = settings::load_error() {
+        return Err(format!(
+            "Settings were not saved: the file could not be read, so what is on \
+             screen are defaults, not your settings. Writing them would lose \
+             whatever the file holds — including where your profiles live. Fix \
+             or delete it first. ({err})"
+        ));
+    }
     // Owned by the migration, not the form — which round-trips the whole struct
     // and would reset it while the data sits on another disk.
     if let Ok(cur) = settings::load() {
@@ -2134,6 +2214,8 @@ pub fn run() {
             launch,
             settings_get,
             settings_save,
+            settings_load_error,
+            host_screen,
             api_info,
             api_regenerate_token,
             ps_get_key,
@@ -2174,8 +2256,13 @@ pub fn run() {
                 let quit = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show, &quit])?;
                 if let Some(icon) = app.default_window_icon().cloned() {
-                    TrayIconBuilder::with_id("main")
-                        .icon(icon)
+                    let builder = TrayIconBuilder::with_id("main").icon(icon);
+                    // The macOS menu bar wants a stencil: drawn from the icon's
+                    // shape alone, so it is dark on a light bar and light on a
+                    // dark one instead of staying purple in both.
+                    #[cfg(target_os = "macos")]
+                    let builder = builder.icon_as_template(true);
+                    builder
                         .tooltip("ShardX Launcher")
                         .menu(&menu)
                         .show_menu_on_left_click(false)

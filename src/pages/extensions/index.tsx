@@ -6,8 +6,10 @@ import { AddIcon, DeleteIcon, FolderIcon, GlobeIcon, NavExtensionsIcon } from ".
 import { Field } from "../../shared/ui/Field";
 import { useExtensions, type ExtensionEntry } from "../../entities/extension";
 import { fmtBytes } from "../../shared/lib/utils";
+import { useT } from "../../shared/i18n";
 
 function Card({ e }: { e: ExtensionEntry }) {
+  const t = useT();
   const remove = useExtensions((s) => s.remove);
   return (
     <article className="flex flex-col gap-2.5 rounded-xl bg-bg-white-0 p-3.5 ring-1 ring-inset ring-stroke-soft-200">
@@ -29,7 +31,7 @@ function Card({ e }: { e: ExtensionEntry }) {
         </div>
       </div>
       <p className="m-0 line-clamp-3 min-h-[2.4em] text-paragraph-xs text-text-sub-600">
-        {e.description || <span className="text-text-soft-400">No description in the manifest.</span>}
+        {e.description || <span className="text-text-soft-400">{t("extensions.noDescription")}</span>}
       </p>
       <div className="flex justify-end">
         <Button
@@ -39,7 +41,7 @@ function Card({ e }: { e: ExtensionEntry }) {
           leftIcon={<DeleteIcon className="size-3.5" />}
           onClick={() => remove(e)}
         >
-          Remove
+          {t("extensions.remove")}
         </Button>
       </div>
     </article>
@@ -48,6 +50,7 @@ function Card({ e }: { e: ExtensionEntry }) {
 
 /** Add by address: a Web Store page, a bare id, or a .crx / .zip link. */
 function LinkDialog({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const [url, setUrl] = useState("");
   const busy = useExtensions((s) => s.busy);
   const importUrl = useExtensions((s) => s.importUrl);
@@ -55,25 +58,24 @@ function LinkDialog({ onClose }: { onClose: () => void }) {
     <DialogModal
       open
       onClose={onClose}
-      title="Add from a link"
-      confirmLabel={busy ? "Downloading…" : "Download"}
+      title={t("extensions.linkTitle")}
+      confirmLabel={busy ? t("extensions.downloading") : t("extensions.download")}
       onConfirm={() => importUrl(url)}
       isLoading={busy}
       isDisabled={busy || !url.trim()}
-      cancelLabel="Cancel"
+      cancelLabel={t("extensions.cancel")}
       onCancel={onClose}
     >
       <div className="flex w-[460px] flex-col gap-3 py-4">
         <Field
-          label="Web Store page, extension id, or a .crx / .zip link"
+          label={t("extensions.linkFieldLabel")}
           value={url}
           onChange={setUrl}
           placeholder="https://chromewebstore.google.com/detail/…"
           mono
         />
         <p className="m-0 text-paragraph-xs text-text-soft-400">
-          A Web Store page is not the file itself, so the id is taken out of the
-          address and the extension fetched by it. Pasting just the id works too.
+          {t("extensions.linkHelp")}
         </p>
       </div>
     </DialogModal>
@@ -81,6 +83,7 @@ function LinkDialog({ onClose }: { onClose: () => void }) {
 }
 
 export function ExtensionsPage() {
+  const t = useT();
   const init = useExtensions((s) => s.init);
   const items = useExtensions((s) => s.items);
   const busy = useExtensions((s) => s.busy);
@@ -106,15 +109,13 @@ export function ExtensionsPage() {
 
   return (
     <section className="flex flex-col">
-      <Topbar crumbs={["Library", "Extensions"]} search={search} onSearch={setSearch} />
+      <Topbar crumbs={[t("extensions.crumbLibrary"), t("extensions.crumbExtensions")]} search={search} onSearch={setSearch} />
 
       <div className="mb-3.5 flex items-end justify-between gap-4">
         <div>
-          <h1 className="m-0 text-title-h5 text-text-strong-950">Extensions</h1>
+          <h1 className="m-0 text-title-h5 text-text-strong-950">{t("extensions.title")}</h1>
           <p className="m-0 mt-1 max-w-[70ch] text-paragraph-xs text-text-soft-400">
-            Add from a link or a file, then pick per profile in the editor. Name,
-            description and icon are read out of the extension itself, so what you
-            see here is what the browser will load.
+            {t("extensions.pageHelp")}
           </p>
         </div>
         <div className="flex flex-none items-center gap-2">
@@ -123,21 +124,21 @@ export function ExtensionsPage() {
             leftIcon={<FolderIcon className="size-4" />}
             onClick={importFolder}
           >
-            Unpacked folder
+            {t("extensions.unpackedFolder")}
           </Button>
           <Button
             variant="neutral" mode="stroke" size="small" disabled={busy}
             leftIcon={<GlobeIcon className="size-4" />}
             onClick={() => setLinkOpen(true)}
           >
-            From link
+            {t("extensions.fromLink")}
           </Button>
           <Button
             variant="primary" mode="filled" size="small" disabled={busy} isLoading={busy}
             leftIcon={<AddIcon className="size-4" />}
             onClick={importFiles}
           >
-            Add .crx / .zip
+            {t("extensions.addFiles")}
           </Button>
         </div>
       </div>
@@ -148,11 +149,10 @@ export function ExtensionsPage() {
             <NavExtensionsIcon className="size-6" />
           </div>
           <h3 className="m-0 text-label-sm text-text-strong-950">
-            {items.length === 0 ? "No extensions yet" : "Nothing matches that"}
+            {items.length === 0 ? t("extensions.emptyTitle") : t("extensions.noMatchTitle")}
           </h3>
           <p className="m-0 max-w-[420px] text-paragraph-sm text-text-sub-600">
-            Paste a Web Store link and it downloads itself, or add a .crx, a .zip
-            or a folder you unpacked yourself.
+            {t("extensions.emptyHelp")}
           </p>
         </div>
       ) : (

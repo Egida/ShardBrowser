@@ -18,12 +18,14 @@ import { TrashPage } from "../pages/trash";
 import { SettingsPage } from "../pages/settings";
 import { PatchLogPage } from "../pages/patchlog";
 import { useNav } from "../shared/model/navigation";
+import { useLauncherWarning } from "../shared/hooks/useLauncherWarning";
 import { trackSection } from "../shared/lib/analytics";
 
 export function App() {
   const section = useNav((s) => s.section);
 
   useEffect(() => { void trackSection(section); }, [section]);
+  useLauncherWarning();
 
   return (
     <>

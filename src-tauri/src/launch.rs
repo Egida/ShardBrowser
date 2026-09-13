@@ -11,6 +11,8 @@ use std::process::Stdio;
 pub struct LaunchOutcome {
     pub pid: u32,
     pub cdp: Option<process::CdpInfo>,
+    /// Why `cdp` is empty, so a client knows to poll rather than guess.
+    pub cdp_error: Option<String>,
 }
 
 /// Resolve the ShardX executable from settings, runtime cache, or dev guess.
@@ -83,12 +85,36 @@ pub async fn launch_profile_synced(
                     true
                 }
                 Err(e) => {
-                    let cached = proxy::latest_test(&p.id).and_then(|s| s.udp_ms).is_some();
-                    eprintln!(
-                        "[launcher] UDP probe failed for proxy {} ({e}); using cached={cached}",
-                        p.host
-                    );
-                    cached
+                    // A failed probe does not mean the proxy has no relay. Some
+                    // VPNs pass UDP for one application and drop it for another,
+                    // and the launcher can be on the losing side while the
+                    // browser it starts is not — measured on a Mac where the
+                    // browser got STUN replies and a plain binary got none.
+                    // Treating that as "no UDP" took QUIC and proxied WebRTC
+                    // away from a browser that could have used both.
+                    if !proxy::can_send_udp_directly().await {
+                        crate::notify_warning(
+                            "This computer would not let the launcher send UDP, so \
+                             whether the proxy relays it could not be checked. The \
+                             browser is started with UDP left on — if it is a VPN \
+                             doing this, the browser may well be allowed where the \
+                             launcher is not.",
+                        );
+                        eprintln!(
+                            "[launcher] UDP probe failed for proxy {} ({e}), and this \
+                             process cannot send UDP at all — leaving UDP enabled",
+                            p.host
+                        );
+                        true
+                    } else {
+                        let cached = proxy::latest_test(&p.id).and_then(|s| s.udp_ms).is_some();
+                        eprintln!(
+                            "[launcher] UDP probe failed for proxy {} ({e}) while this \
+                             process CAN send UDP, so the proxy has no relay; cached={cached}",
+                            p.host
+                        );
+                        cached
+                    }
                 }
             }
         } else {
@@ -188,9 +214,9 @@ pub async fn launch_profile_synced(
         cmd.arg("--disable-features=WebGPU");
     }
 
-    // Interactive launches: restore previous session, suppress crash bubble.
+    // Interactive launches: suppress the crash bubble. Restoring the session is
+    // the browser's own "On startup" setting — forcing it here overrode it.
     if !headless && !enable_cdp {
-        cmd.arg("--restore-last-session");
         cmd.arg("--hide-crash-restore-bubble");
     }
 
@@ -337,6 +363,7 @@ pub async fn launch_profile_synced(
 
     profile::touch_launched(profile_id, None)?;
 
+    let mut cdp_error = None;
     let cdp = if enable_cdp {
         match read_devtools_endpoint(&udd).await {
             Some(c) => {
@@ -345,7 +372,14 @@ pub async fn launch_profile_synced(
                 Some(c)
             }
             None => {
-                eprintln!("[launcher] CDP: DevToolsActivePort not found within timeout");
+                let msg = format!(
+                    "the browser did not report a debugging port within {}s; \
+                     read DevToolsActivePort in the profile's user-data dir, \
+                     or ask this endpoint again",
+                    CDP_WAIT.as_secs()
+                );
+                eprintln!("[launcher] CDP: {msg}");
+                cdp_error = Some(msg);
                 None
             }
         }
@@ -353,13 +387,18 @@ pub async fn launch_profile_synced(
         None
     };
 
-    Ok(LaunchOutcome { pid, cdp })
+    Ok(LaunchOutcome { pid, cdp, cdp_error })
 }
 
-/// Poll `<udd>/DevToolsActivePort` for ~6s; line 1 = port, line 2 = ws path.
+/// How long a launch waits for the browser to publish its debugging port. Six
+/// seconds was not enough for a cold start on Windows with a large profile.
+const CDP_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Poll `<udd>/DevToolsActivePort`; line 1 = port, line 2 = ws path.
 async fn read_devtools_endpoint(udd: &Path) -> Option<process::CdpInfo> {
     let file = udd.join("DevToolsActivePort");
-    for _ in 0..60 {
+    let deadline = std::time::Instant::now() + CDP_WAIT;
+    while std::time::Instant::now() < deadline {
         if let Ok(txt) = std::fs::read_to_string(&file) {
             let mut lines = txt.lines();
             if let (Some(port_s), Some(path)) = (lines.next(), lines.next()) {
@@ -466,10 +505,11 @@ async fn resolve_auto_fields(
 
     let host_warn = || {
         if proxy_opt.is_some() {
-            eprintln!(
-                "[launcher] WARNING: proxy is bound but every geo source failed; \
-                 using the LAUNCHER HOST's TZ/locale.  This will leak your real \
-                 timezone — re-test the proxy or set the timezone manually."
+            crate::notify_warning(
+                "Could not read the proxy's location. Rather than hand a page \
+                 this computer's timezone, the profile starts on UTC — which \
+                 few people really keep. Test the proxy again, or set the \
+                 timezone on the profile yourself.",
             );
         }
     };
@@ -489,12 +529,22 @@ async fn resolve_auto_fields(
         }
         None => {
             host_warn();
-            (
-                host_timezone().unwrap_or_else(|| "UTC".into()),
-                host_locale().unwrap_or_else(|| "en-US".into()),
-                None,
-                None,
-            )
+            if proxy_opt.is_some() {
+                // A profile behind a proxy must never answer with this
+                // computer's clock. Before, the Windows branch had no way to
+                // read the host zone and landed on UTC by accident; now that
+                // it can read it, handing it over would be a real leak of
+                // where the operator is. UTC is wrong too, but it is not
+                // anybody's address.
+                ("UTC".into(), "en-US".into(), None, None)
+            } else {
+                (
+                    host_timezone().unwrap_or_else(|| "UTC".into()),
+                    host_locale().unwrap_or_else(|| "en-US".into()),
+                    None,
+                    None,
+                )
+            }
         }
     };
 
@@ -687,7 +737,14 @@ fn host_timezone() -> Option<String> {
             }
         }
     }
-    std::env::var("TZ").ok().filter(|s| !s.is_empty())
+    if let Ok(tz) = std::env::var("TZ") {
+        if !tz.is_empty() {
+            return Some(tz);
+        }
+    }
+    // Windows has neither of the above, and answering "UTC" there put every
+    // profile on a clock almost nobody really keeps.
+    iana_time_zone::get_timezone().ok().filter(|s| !s.is_empty())
 }
 
 /// Extract BCP-47 locale from $LANG/$LC_ALL ("en_US.UTF-8" → "en-US").

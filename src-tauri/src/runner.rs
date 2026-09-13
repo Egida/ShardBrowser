@@ -1836,6 +1836,37 @@ async fn run_block(
                 }
             }
         }
+        // Turning the handset. Physical and refused on a desktop profile:
+        // the two screen numbers are traded only for a phone, so elsewhere the
+        // angle would move while screen.width stood still.
+        "screen.rotate" => {
+            if !bound.mobile {
+                return Err(anyhow!(
+                    "only a phone profile can be turned — this one claims a desktop screen"
+                ));
+            }
+            let angle = param_f64(p, "angle").unwrap_or(90.0) as i64;
+            if !matches!(angle, 0 | 90 | 180 | 270) {
+                return Err(anyhow!(
+                    "a screen turns to 0, 90, 180 or 270 degrees, not {angle}"
+                ));
+            }
+            let mut args = json!({ "angle": angle });
+            if let Some(ms) = param_f64(p, "turnMs") {
+                args["turnMs"] = json!(ms);
+            }
+            let r = cdp::page_call(profile, "Motion.setOrientation", args).await?;
+            // Optional, unlike readText's: the turn is the point, and the name
+            // is only for a project that branches on portrait vs landscape.
+            if let Some(into) = param(p, "into").filter(|s| !s.trim().is_empty()) {
+                let t = r
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                vars.insert(check_var_name(into)?, t);
+            }
+        }
         "click" | "doubleClick" | "rightClick" | "hover" => {
             let (x, y) = match param(p, "selector") {
                 Some(sel) => center_waiting(profile, &expand(sel, vars), wait_for(p)).await?,

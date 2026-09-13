@@ -5372,7 +5372,7 @@ dependencies = [
 
 [[package]]
 name = "shardx-launcher"
-version = "2.0.2"
+version = "2.0.3"
 dependencies = [
  "ab_glyph",
  "aes",
@@ -5386,6 +5386,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.2.17",
  "hmac 0.12.1",
+ "iana-time-zone",
  "jsonwebtoken",
  "libc",
  "mongodb",

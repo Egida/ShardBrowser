@@ -35,23 +35,24 @@ export type MigrationProgress = {
   current: string;
 };
 
-/** The kinds the engine publishes, and what they are called to a person. */
+/** The kinds the engine publishes. `label` is a translation key, not text —
+ *  the settings page renders it through t(). */
 export const HELPER_KINDS: { value: string; label: string }[] = [
-  { value: "first_name",  label: "First name" },
-  { value: "last_name",   label: "Last name" },
-  { value: "full_name",   label: "Full name" },
-  { value: "email",       label: "Email" },
-  { value: "username",    label: "Username" },
-  { value: "phone",       label: "Phone" },
-  { value: "country",     label: "Country" },
-  { value: "city",        label: "City" },
-  { value: "postal_code", label: "Postcode" },
-  { value: "street",      label: "Address" },
-  { value: "birth_date",  label: "Date of birth" },
-  { value: "birth_day",   label: "Birth day" },
-  { value: "birth_month", label: "Birth month" },
-  { value: "birth_year",  label: "Birth year" },
-  { value: "gender",      label: "Gender" },
+  { value: "first_name",  label: "helperKinds.firstName" },
+  { value: "last_name",   label: "helperKinds.lastName" },
+  { value: "full_name",   label: "helperKinds.fullName" },
+  { value: "email",       label: "helperKinds.email" },
+  { value: "username",    label: "helperKinds.username" },
+  { value: "phone",       label: "helperKinds.phone" },
+  { value: "country",     label: "helperKinds.country" },
+  { value: "city",        label: "helperKinds.city" },
+  { value: "postal_code", label: "helperKinds.postalCode" },
+  { value: "street",      label: "helperKinds.street" },
+  { value: "birth_date",  label: "helperKinds.birthDate" },
+  { value: "birth_day",   label: "helperKinds.birthDay" },
+  { value: "birth_month", label: "helperKinds.birthMonth" },
+  { value: "birth_year",  label: "helperKinds.birthYear" },
+  { value: "gender",      label: "helperKinds.gender" },
 ];
 
 export type ApiInfo = {

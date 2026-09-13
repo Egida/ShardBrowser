@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { toast } from "../../../shared/lib/toast";
 import { confirmModal } from "../../../shared/lib/confirm";
+import { t } from "../../../shared/i18n";
 import {
   automationAvailable,
   automationCreate,
@@ -94,8 +95,10 @@ export const useAutomation = create<AutomationStore>((set, get) => ({
 
   remove: async (p) => {
     const ok = await confirmModal({
-      title: "Delete project",
-      message: `"${p.name}" and its ${p.blocks.length} step${p.blocks.length === 1 ? "" : "s"} will be gone.`,
+      title: t("useAutomation.deleteTitle"),
+      message: p.blocks.length === 1
+        ? t("useAutomation.deleteMessageOne", { name: p.name })
+        : t("useAutomation.deleteMessage", { name: p.name, n: p.blocks.length }),
       danger: true,
     });
     if (ok !== true) return;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { automationFleet, type RunState, type WorkerState } from "../../entities/automation";
+import { useT } from "../../shared/i18n";
 
 const TONE: Record<WorkerState["status"], string> = {
   queued: "text-text-soft-400",
@@ -12,6 +13,7 @@ const TONE: Record<WorkerState["status"], string> = {
 
 /** A second window: every browser in every run, one row each. */
 export function FleetMonitor() {
+  const t = useT();
   const [runs, setRuns] = useState<RunState[]>([]);
 
   useEffect(() => {
@@ -36,7 +38,7 @@ export function FleetMonitor() {
 
       {runs.length === 0 ? (
         <p className="m-0 mt-6 text-center text-paragraph-sm text-text-soft-400">
-          Nothing is running.
+          {t("fleetMonitor.emptyState")}
         </p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">

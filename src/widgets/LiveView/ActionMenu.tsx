@@ -1,19 +1,20 @@
 import type { Picked } from "../../entities/automation";
+import { useT } from "../../shared/i18n";
 
 export type MenuAction = { kind: string; label: string; needsText?: boolean };
 
 /** What a right-click offers for the element under it. Ordered by how often an
  *  operator wants each. */
-const ACTIONS: MenuAction[] = [
-  { kind: "click", label: "Click" },
-  { kind: "type", label: "Type text here…", needsText: true },
-  { kind: "doubleClick", label: "Double-click" },
-  { kind: "rightClick", label: "Right-click" },
-  { kind: "hover", label: "Move to" },
-  { kind: "clear", label: "Clear field" },
-  { kind: "waitFor", label: "Wait for this" },
-  { kind: "ifExists", label: "Only if this exists" },
-  { kind: "readText", label: "Read its text…", needsText: true },
+const actions = (t: (key: string) => string): MenuAction[] => [
+  { kind: "click", label: t("actionMenu.click") },
+  { kind: "type", label: t("actionMenu.type"), needsText: true },
+  { kind: "doubleClick", label: t("actionMenu.doubleClick") },
+  { kind: "rightClick", label: t("actionMenu.rightClick") },
+  { kind: "hover", label: t("actionMenu.hover") },
+  { kind: "clear", label: t("actionMenu.clear") },
+  { kind: "waitFor", label: t("actionMenu.waitFor") },
+  { kind: "ifExists", label: t("actionMenu.ifExists") },
+  { kind: "readText", label: t("actionMenu.readText"), needsText: true },
 ];
 
 type Props = {
@@ -24,11 +25,12 @@ type Props = {
 };
 
 export function ActionMenu({ at, target, onChoose, onClose }: Props) {
+  const t = useT();
   const what = target?.label
     ? `"${target.label}"`
     : target?.tag
       ? `<${target.tag}>`
-      : "this point";
+      : t("actionMenu.thisPoint");
 
   return (
     <>
@@ -38,9 +40,9 @@ export function ActionMenu({ at, target, onChoose, onClose }: Props) {
         style={{ left: at.x, top: at.y }}
       >
         <div className="truncate px-3 py-1.5 text-paragraph-xs text-text-soft-400">
-          {target?.selector ? what : `${what} · by position`}
+          {target?.selector ? what : t("actionMenu.byPosition", { what })}
         </div>
-        {ACTIONS.map((a) => (
+        {actions(t).map((a) => (
           <button
             key={a.kind}
             type="button"

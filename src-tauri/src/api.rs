@@ -202,6 +202,8 @@ struct CreateReq {
     color: Option<String>,
     /// Extension-library ids to load at launch (`GET /extensions`).
     extensions: Option<Vec<String>>,
+    /// Claimed display refresh rate in Hz (24-480). Absent = the engine's 60.
+    refresh_rate: Option<i64>,
     fingerprint: Value,
 }
 
@@ -242,6 +244,9 @@ async fn persist_created(folder_override: Option<String>, body: CreateReq) -> Ap
         crate::notify_store_changed("proxies");
     }
     crate::ensure_default_noise(&mut cfg);
+    if let Some(hz) = body.refresh_rate {
+        apply_refresh_rate(&mut cfg, hz).map_err(|e| err(StatusCode::BAD_REQUEST, e))?;
+    }
     cfg.insert("_meta".into(), meta);
 
     let pm = crate::save_profile_core(crate::main_window().as_ref(), Value::Object(cfg), false)
@@ -270,6 +275,8 @@ struct TempReq {
     folder: Option<String>,
     /// Per vector: `{"canvas": true}` or a full block. Omitted vectors stay off.
     noise: Option<Value>,
+    /// Claimed display refresh rate in Hz (24-480). Absent = the engine's 60.
+    refresh_rate: Option<i64>,
 }
 
 /// Temporary profile (hidden, auto-deleted on close); pair with /start.
@@ -289,6 +296,9 @@ async fn create_temporary(Json(body): Json<TempReq>) -> ApiResult {
         apply_noise_overrides(&mut cfg, n)
             .map_err(|e| err(StatusCode::BAD_REQUEST, e))?;
     }
+    if let Some(hz) = body.refresh_rate {
+        apply_refresh_rate(&mut cfg, hz).map_err(|e| err(StatusCode::BAD_REQUEST, e))?;
+    }
     let mut meta = json!({ "id": "", "folder": body.folder.unwrap_or_default(), "temporary": true });
     if let Some(pstr) = body.proxy.as_ref() {
         let entry = crate::proxy::parse_single(pstr)
@@ -306,6 +316,25 @@ async fn create_temporary(Json(body): Json<TempReq>) -> ApiResult {
         "temporary": true,
         "proxy_inline": body.proxy.is_some(),
     })))
+}
+
+/// Write `screen.refresh_rate` into a config. Its own field rather than part of
+/// `fingerprint` because it is the one piece of the screen block an operator
+/// sets on its own: a page reads it by timing frames, not by asking.
+fn apply_refresh_rate(cfg: &mut serde_json::Map<String, Value>, hz: i64) -> Result<(), String> {
+    if !(24..=480).contains(&hz) {
+        return Err(format!("refresh_rate must be between 24 and 480, got {hz}"));
+    }
+    let screen = cfg
+        .entry("screen")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    match screen.as_object_mut() {
+        Some(o) => {
+            o.insert("refresh_rate".into(), json!(hz));
+            Ok(())
+        }
+        None => Err("`screen` is not an object".into()),
+    }
 }
 
 /// Merge a caller's noise request into the config's block. Merged, not
@@ -376,6 +405,8 @@ struct EditReq {
     color: Option<String>,
     /// Replaces the whole list; `[]` loads none.
     extensions: Option<Vec<String>>,
+    /// Claimed display refresh rate in Hz (24-480); applied after `fingerprint`.
+    refresh_rate: Option<i64>,
     /// Replace stored fingerprint verbatim.
     fingerprint: Option<Value>,
 }
@@ -442,6 +473,10 @@ async fn edit_profile(Path(id): Path<String>, Json(body): Json<EditReq>) -> ApiR
         validate_extension_ids(ids)?;
         stored.meta.extensions = ids.clone();
     }
+    if let Some(hz) = body.refresh_rate {
+        apply_refresh_rate(&mut stored.config, hz)
+            .map_err(|e| err(StatusCode::BAD_REQUEST, e))?;
+    }
 
     crate::profile::save_raw(&mut stored)
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -504,6 +539,7 @@ async fn start_profile(Path(id): Path<String>, body: Option<Json<StartReq>>) -> 
         "pid": outcome.pid,
         "headless": headless,
         "cdp": outcome.cdp,
+        "cdp_error": outcome.cdp_error,
     })))
 }
 

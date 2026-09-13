@@ -4,6 +4,7 @@ import {
   syncClosePanel, type SyncStatus, type SyncLayout,
 } from "../../entities/profile/model/api";
 import { PlayIcon, PauseIcon, SyncIcon, StopIcon } from "../../shared/icons";
+import { useT } from "../../shared/i18n";
 import { dragWindowOnMouseDown } from "../../shared/lib/dragWindow";
 
 /**
@@ -11,6 +12,7 @@ import { dragWindowOnMouseDown } from "../../shared/lib/dragWindow";
  * whichever the operator works in is the one driving — so nothing is per-window.
  */
 export function SyncPanel({ group }: { group: string }) {
+  const t = useT();
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [busy, setBusy] = useState(false);
   // Must survive the second before the first browser connects, and go once
@@ -52,17 +54,17 @@ export function SyncPanel({ group }: { group: string }) {
       <div className="flex shrink-0 select-none items-center gap-2 px-3 pt-2.5 pb-1.5">
         <SyncIcon className="size-4 shrink-0 text-primary-base" />
         <div className="flex-1 truncate text-label-xs text-text-strong-950">
-          {members.length} in sync
+          {t("syncPanel.inSyncCount", { n: members.length })}
         </div>
         <button type="button" onMouseDown={(e) => e.stopPropagation()} disabled={busy}
                 onClick={() => run(() => syncSetPaused(group, !paused))}
-                title={paused ? "Resume" : "Hold — work in one window alone"}
+                title={paused ? t("syncPanel.resume") : t("syncPanel.hold")}
                 className="flex size-6 items-center justify-center rounded-6 text-text-sub-600 ring-1 ring-inset ring-stroke-soft-200 hover:bg-bg-weak-50 disabled:opacity-50">
           {paused ? <PlayIcon className="size-3" /> : <PauseIcon className="size-3" />}
         </button>
         <button type="button" onMouseDown={(e) => e.stopPropagation()} disabled={busy}
                 onClick={() => run(() => syncStop(group))}
-                title="Close every window in the group"
+                title={t("syncPanel.stopAll")}
                 className="flex size-6 items-center justify-center rounded-6 text-error-base ring-1 ring-inset ring-stroke-soft-200 hover:bg-error-lighter disabled:opacity-50">
           <StopIcon className="size-3" />
         </button>
@@ -82,7 +84,7 @@ export function SyncPanel({ group }: { group: string }) {
           ordinary fleet. */}
       <div className="min-h-0 flex-1 content-start overflow-auto border-t border-stroke-soft-200 px-2 py-1.5">
         {members.length === 0 ? (
-          <div className="text-paragraph-xs text-text-soft-400">starting…</div>
+          <div className="text-paragraph-xs text-text-soft-400">{t("syncPanel.starting")}</div>
         ) : (
           <div className="flex flex-wrap gap-1">
             {members.map((m) => (
@@ -91,8 +93,8 @@ export function SyncPanel({ group }: { group: string }) {
                 type="button"
                 disabled={busy}
                 onClick={() => run(() => syncSetExcluded(group, m.profile, !m.excluded))}
-                title={`${m.profile}${m.driving ? " — driving" : ""}\n${
-                  m.excluded ? "Click to bring back into the group" : "Click to hold out"}`}
+                title={`${m.profile}${m.driving ? t("syncPanel.drivingSuffix") : ""}\n${
+                  m.excluded ? t("syncPanel.chipBringBack") : t("syncPanel.chipHoldOut")}`}
                 className={`flex max-w-[9rem] items-center gap-1 rounded-6 px-1.5 py-0.5 text-paragraph-xs ring-1 ring-inset disabled:opacity-50 ${
                   m.excluded
                     ? "text-text-soft-400 line-through ring-stroke-soft-200"

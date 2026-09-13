@@ -5,6 +5,7 @@ import { PinIconApp } from "../../shared/icons";
 import type { ContextItem } from "../../shared/types";
 import { CountryFlag } from "../../shared/ui/CountryFlag";
 import { fmtTs, fmtUptime } from "../../shared/lib/utils";
+import { useT } from "../../shared/i18n";
 import { useProfile, type ProfileMeta } from "../../entities/profile";
 import type { ProxyEntry } from "../../entities/proxy";
 import { ProfileInlineEditor, ProfileRowActions } from "../../features/manage-profiles";
@@ -14,6 +15,7 @@ export function ProfileRow({ profile, proxy, onMenu }: {
   proxy: ProxyEntry | null;
   onMenu: (e: React.MouseEvent, items: ContextItem[]) => void;
 }) {
+  const t = useT();
   const p = profile;
   const isRunning = useProfile((s) => !!s.running[p.id]);
   const runningSince = useProfile((s) => s.running[p.id]);
@@ -39,20 +41,20 @@ export function ProfileRow({ profile, proxy, onMenu }: {
 
   // Per-profile action menu shared by right-click and the ⋮ button.
   const menu = (): ContextItem[] => [
-    { label: isRunning ? "Stop" : "Launch", onClick: () => startStop(p) },
-    { label: "Edit", onClick: () => expand(p.id) },
-    { label: "Clone", onClick: () => cloneProfile(p.id) },
-    { label: p.pinned ? "Unpin" : "Pin to top", onClick: () => togglePin(p) },
+    { label: isRunning ? t("profileRow.menuStop") : t("profileRow.menuLaunch"), onClick: () => startStop(p) },
+    { label: t("profileRow.menuEdit"), onClick: () => expand(p.id) },
+    { label: t("profileRow.menuClone"), onClick: () => cloneProfile(p.id) },
+    { label: p.pinned ? t("profileRow.menuUnpin") : t("profileRow.menuPin"), onClick: () => togglePin(p) },
     { sep: true, label: "", onClick: () => {} },
-    { label: "Move to folder…", onClick: () => setFolderModal({ profileId: p.id }) },
+    { label: t("profileRow.menuMoveToFolder"), onClick: () => setFolderModal({ profileId: p.id }) },
     ...(p.folder
-      ? [{ label: "Remove from folder", onClick: () => setProfileFolder(p.id, "") }]
+      ? [{ label: t("profileRow.menuRemoveFromFolder"), onClick: () => setProfileFolder(p.id, "") }]
       : []),
     { sep: true, label: "", onClick: () => {} },
-    { label: "Export cookies", onClick: () => exportCookies(p) },
-    { label: "Import cookies", onClick: () => importCookies(p) },
+    { label: t("profileRow.menuExportCookies"), onClick: () => exportCookies(p) },
+    { label: t("profileRow.menuImportCookies"), onClick: () => importCookies(p) },
     { sep: true, label: "", onClick: () => {} },
-    { label: "Delete", onClick: () => remove(p.id), danger: true },
+    { label: t("profileRow.menuDelete"), onClick: () => remove(p.id), danger: true },
   ];
 
   return (
@@ -118,7 +120,7 @@ export function ProfileRow({ profile, proxy, onMenu }: {
         <div className="min-w-0 cursor-pointer overflow-hidden" onClick={() => { if (!shiftPress.current) expand(p.id); }}>
           <div className="overflow-hidden text-ellipsis whitespace-nowrap text-label-xs text-text-strong-950">
             {p.pinned && (
-              <span className="mr-1.5 inline-flex items-center align-middle text-primary-base" title="Pinned">
+              <span className="mr-1.5 inline-flex items-center align-middle text-primary-base" title={t("profileRow.pinnedTitle")}>
                 <PinIconApp className="size-3" />
               </span>
             )}
@@ -128,13 +130,13 @@ export function ProfileRow({ profile, proxy, onMenu }: {
         </div>
         <div>
           <Badge color={isRunning ? "success" : "gray"} variant='filled' size="small" dot>
-            {isRunning ? "Running" : "Idle"}
+            {isRunning ? t("profileRow.statusRunning") : t("profileRow.statusIdle")}
           </Badge>
         </div>
         <div
           className="cursor-pointer transition-colors hover:text-primary-base"
           onClick={() => { if (!shiftPress.current) setQuickEdit({ kind: "proxy", profile: p }); }}
-          title="Change proxy"
+          title={t("profileRow.changeProxyTitle")}
         >
           {proxy ? (
             <div className="flex min-w-0 items-center gap-2 overflow-hidden">
@@ -155,11 +157,11 @@ export function ProfileRow({ profile, proxy, onMenu }: {
                 <span className="mono small text-text-sub-600">{proxy.host}:{proxy.port}</span>
               </span>
             </div>
-          ) : <span className="text-paragraph-xs text-text-soft-400">— direct —</span>}
+          ) : <span className="text-paragraph-xs text-text-soft-400">{t("profileRow.noProxy")}</span>}
         </div>
         <div
           className="min-w-0 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap text-paragraph-xs text-text-sub-600 transition-colors hover:text-primary-base"
-          title={p.notes || "Click to edit notes"}
+          title={p.notes || t("profileRow.notesHint")}
           onClick={() => { if (!shiftPress.current) setQuickEdit({ kind: "notes", profile: p }); }}
         >
           {p.notes || <span className="text-text-soft-400">—</span>}
@@ -173,7 +175,7 @@ export function ProfileRow({ profile, proxy, onMenu }: {
             })()}
           </span>
         </div>
-        <div className="cell-lastrun"><span className="text-paragraph-xs text-text-soft-400">{p.last_launched_at ? fmtTs(p.last_launched_at) : "never"}</span></div>
+        <div className="cell-lastrun"><span className="text-paragraph-xs text-text-soft-400">{p.last_launched_at ? fmtTs(p.last_launched_at) : t("profileRow.neverLaunched")}</span></div>
         <ProfileRowActions
           profile={p}
           onMore={(e) => { e.stopPropagation(); onMenu(e, menu()); }}

@@ -14,8 +14,10 @@ import { automationImport, useAutomation, type Bundle } from "../../entities/aut
 import { toast } from "../../shared/lib/toast";
 import { ProjectEditor } from "./ProjectEditor";
 import { ModulesCard } from "../../features/automation-modules";
+import { useT } from "../../shared/i18n";
 
 export function AutomationPage() {
+  const t = useT();
   const init = useAutomation((s) => s.init);
   const status = useAutomation((s) => s.status);
   const available = useAutomation((s) => s.available);
@@ -29,6 +31,7 @@ export function AutomationPage() {
   const reload = useAutomation((s) => s.reload);
 
   const [name, setName] = useState("");
+  const crumbs = [t("automation.crumbWorkspace"), t("automation.crumbAutomation")];
 
   useEffect(() => { init(); }, [init]);
   // A project created or removed through the HTTP API or MCP writes straight
@@ -38,10 +41,10 @@ export function AutomationPage() {
   if (status === "ready" && !available) {
     return (
       <section className="flex flex-col">
-        <Topbar crumbs={["Workspace", "Automation"]} search="" onSearch={() => {}} />
+        <Topbar crumbs={crumbs} search="" onSearch={() => {}} />
         <div className="rounded-12 bg-bg-white-0 p-8 text-center shadow-[var(--shadow-xs)] ring-1 ring-inset ring-stroke-soft-200">
           <p className="m-0 text-paragraph-sm text-text-soft-400">
-            This launcher was built without automation.
+            {t("automation.notBuilt")}
           </p>
         </div>
       </section>
@@ -59,15 +62,13 @@ export function AutomationPage() {
 
   return (
     <section className="flex flex-col">
-      <Topbar crumbs={["Workspace", "Automation"]} search="" onSearch={() => {}} />
+      <Topbar crumbs={crumbs} search="" onSearch={() => {}} />
 
       <div className="mb-3.5 flex items-end justify-between gap-4">
         <div>
-          <h1 className="m-0 text-title-h5 text-text-strong-950">Automation</h1>
+          <h1 className="m-0 text-title-h5 text-text-strong-950">{t("automation.title")}</h1>
           <p className="m-0 mt-1 max-w-[70ch] text-paragraph-xs text-text-soft-400">
-            A project is a list of steps run against your profiles. Every click and
-            keystroke goes through the browser's own human-input engine, so what a
-            page sees is a person, not a script.
+            {t("automation.intro")}
           </p>
         </div>
       </div>
@@ -75,7 +76,7 @@ export function AutomationPage() {
       <div className="mb-3.5 flex items-center gap-2">
         <input
           className="h-9 w-[280px] rounded-10 bg-bg-white-0 px-3 text-paragraph-sm text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200 outline-none placeholder:text-text-soft-400 focus:ring-primary-base"
-          placeholder="New project name"
+          placeholder={t("automation.namePlaceholder")}
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
@@ -86,7 +87,7 @@ export function AutomationPage() {
           disabled={!name.trim()}
           onClick={submit}
         >
-          Create
+          {t("automation.create")}
         </Button>
         <label className="cursor-pointer">
           <input
@@ -104,16 +105,18 @@ export function AutomationPage() {
                 open(p.id);
                 const n = bundle.needs?.length ?? 0;
                 toast.ok(
-                  n > 0
-                    ? `Imported · ${n} secret${n === 1 ? "" : "s"} still to fill in`
-                    : "Imported",
+                  n === 0
+                    ? t("automation.imported")
+                    : n === 1
+                      ? t("automation.importedSecret", { n })
+                      : t("automation.importedSecrets", { n }),
                 );
               } catch (err) { toast.err(String(err)); }
             }}
           />
           <span className="inline-flex h-8 items-center gap-1.5 rounded-10 px-3 text-label-sm text-text-sub-600 ring-1 ring-inset ring-stroke-soft-200 hover:bg-bg-weak-50">
             <UploadIcon className="size-4" />
-            Import
+            {t("automation.import")}
           </span>
         </label>
       </div>
@@ -121,9 +124,9 @@ export function AutomationPage() {
       <div className="overflow-hidden rounded-12 bg-bg-white-0 shadow-[var(--shadow-xs)] ring-1 ring-inset ring-stroke-soft-200">
         {projects.length > 0 && (
           <div className="grid grid-cols-[1fr_100px_160px_140px] items-center gap-3 border-b border-stroke-soft-200 bg-bg-weak-50 px-4 py-2 text-subheading-2xs text-text-soft-400">
-            <div>Name</div>
-            <div>Steps</div>
-            <div>Updated</div>
+            <div>{t("automation.colName")}</div>
+            <div>{t("automation.colSteps")}</div>
+            <div>{t("automation.colUpdated")}</div>
             <div />
           </div>
         )}
@@ -132,7 +135,7 @@ export function AutomationPage() {
           <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
             <span className="text-icon-soft-400"><NavAutomationIcon className="size-7" /></span>
             <p className="m-0 text-paragraph-sm text-text-soft-400">
-              No projects yet. Name one above to start.
+              {t("automation.emptyState")}
             </p>
           </div>
         ) : (

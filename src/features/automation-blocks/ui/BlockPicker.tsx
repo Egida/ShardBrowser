@@ -6,12 +6,14 @@ import {
   type BlockSpec,
   type ModuleInfo,
 } from "../../../entities/automation";
+import { useT } from "../../../shared/i18n";
 
 type Props = { onPick: (spec: BlockSpec) => void; onClose: () => void };
 
 /** The library, grouped. Adding a step by hand is the ordinary way to build a
  *  project; recording from the live browser is the shortcut. */
 export function BlockPicker({ onPick, onClose }: Props) {
+  const t = useT();
   const [cat, setCat] = useState(PALETTE[0].id);
   const [q, setQ] = useState("");
   const [modules, setModules] = useState<ModuleInfo[]>([]);
@@ -24,7 +26,7 @@ export function BlockPicker({ onPick, onClose }: Props) {
   const builtinByName = new Map<string, string>(); // lowercased name/id -> real id
   for (const c of PALETTE) {
     builtinByName.set(c.id.toLowerCase(), c.id);
-    builtinByName.set(c.label.toLowerCase(), c.id);
+    builtinByName.set(t(c.label).toLowerCase(), c.id);
   }
   const extra = new Map<string, { id: string; label: string; blocks: BlockSpec[] }>();
   for (const m of modules) {
@@ -33,7 +35,7 @@ export function BlockPicker({ onPick, onClose }: Props) {
       const spec: BlockSpec = {
         kind: `module:${m.id}:${b.kind}`,
         label: b.label ?? b.kind,
-        about: b.about ?? `From ${m.name}.`,
+        about: b.about ?? t("blockPicker.fromModule", { name: m.name }),
         params: (b.params ?? []).map((prm) => ({
           name: prm.name,
           label: prm.label ?? prm.name,
@@ -68,8 +70,9 @@ export function BlockPicker({ onPick, onClose }: Props) {
         ...c,
         blocks: c.blocks.filter(
           (b) =>
-            b.label.toLowerCase().includes(query) ||
-            b.about.toLowerCase().includes(query),
+            // Searched on what the person sees, not on the key behind it.
+            t(b.label).toLowerCase().includes(query) ||
+            t(b.about).toLowerCase().includes(query),
         ),
       })).filter((c) => c.blocks.length > 0)
     : all.filter((c) => c.id === cat);
@@ -78,10 +81,10 @@ export function BlockPicker({ onPick, onClose }: Props) {
     <Modal open onClose={onClose}>
       <div className="flex h-[520px] w-[720px] max-w-full flex-col gap-3 p-5">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="m-0 text-title-h6 text-text-strong-950">Add a step</h2>
+          <h2 className="m-0 text-title-h6 text-text-strong-950">{t("blockPicker.title")}</h2>
           <input
             className="h-8 w-[240px] rounded-8 bg-bg-white-0 px-2.5 text-paragraph-sm text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200 outline-none placeholder:text-text-soft-400 focus:ring-primary-base"
-            placeholder="Search steps"
+            placeholder={t("blockPicker.searchPlaceholder")}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             autoFocus
@@ -102,7 +105,7 @@ export function BlockPicker({ onPick, onClose }: Props) {
                   }`}
                   onClick={() => setCat(c.id)}
                 >
-                  {c.label}
+                  {t(c.label)}
                 </button>
               ))}
             </div>
@@ -112,7 +115,7 @@ export function BlockPicker({ onPick, onClose }: Props) {
             {groups.map((c) => (
               <div key={c.id} className="mb-3 last:mb-0">
                 {query && (
-                  <div className="mb-1 text-subheading-2xs text-text-soft-400">{c.label}</div>
+                  <div className="mb-1 text-subheading-2xs text-text-soft-400">{t(c.label)}</div>
                 )}
                 <div className="flex flex-col gap-1.5">
                   {c.blocks.map((b) => (
@@ -122,8 +125,8 @@ export function BlockPicker({ onPick, onClose }: Props) {
                       className="rounded-10 px-3 py-2 text-left ring-1 ring-inset ring-stroke-soft-200 transition-colors hover:bg-bg-weak-50 hover:ring-primary-base"
                       onClick={() => { onPick(b); onClose(); }}
                     >
-                      <div className="text-label-sm text-text-strong-950">{b.label}</div>
-                      <div className="text-paragraph-xs text-text-soft-400">{b.about}</div>
+                      <div className="text-label-sm text-text-strong-950">{t(b.label)}</div>
+                      <div className="text-paragraph-xs text-text-soft-400">{t(b.about)}</div>
                     </button>
                   ))}
                 </div>
@@ -131,13 +134,15 @@ export function BlockPicker({ onPick, onClose }: Props) {
             ))}
             {broken.length > 0 && !query && (
               <div className="mt-2 rounded-8 bg-warning-alpha-16 px-2.5 py-1.5 text-paragraph-xs text-warning-base">
-                {broken.length} module{broken.length === 1 ? "" : "s"} did not load:{" "}
+                {broken.length === 1
+                  ? t("blockPicker.modulesFailedOne", { n: broken.length })
+                  : t("blockPicker.modulesFailedMany", { n: broken.length })}{" "}
                 {broken.map((m) => `${m.id} (${m.error})`).join(", ")}
               </div>
             )}
             {groups.length === 0 && (
               <p className="m-0 px-1 py-6 text-center text-paragraph-sm text-text-soft-400">
-                Nothing matches "{q}".
+                {t("blockPicker.noMatches", { q })}
               </p>
             )}
           </div>

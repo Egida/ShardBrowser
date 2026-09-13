@@ -6,8 +6,10 @@ import { storeBus } from "../../shared/lib/storeBus";
 import { ProxyEditor, ProxyBulkImporter, ProxyInfoPopover, ProxyDistributeModal } from "../../features/manage-proxies";
 import { ProxyTable } from "../../widgets/ProxyTable/ProxyTable";
 import { ProxyToolbar } from "../../widgets/ProxyTable/ProxyToolbar";
+import { useT } from "../../shared/i18n";
 
 export function ProxiesPage() {
+  const t = useT();
   const init = useProxy((s) => s.init);
   const reload = useProxy((s) => s.reload);
   const search = useProxy((s) => s.search);
@@ -28,9 +30,9 @@ export function ProxiesPage() {
 
   return (
     <section className="flex flex-col">
-      <Topbar crumbs={["Workspace", "Proxies"]} search={search} onSearch={setSearch} />
+      <Topbar crumbs={[t("proxies.crumbWorkspace"), t("proxies.crumbProxies")]} search={search} onSearch={setSearch} />
       <div className="mb-3.5 flex items-end justify-between gap-4">
-        <h1 className="m-0 text-title-h5 text-text-strong-950">Proxies</h1>
+        <h1 className="m-0 text-title-h5 text-text-strong-950">{t("proxies.title")}</h1>
         <ProxyToolbar />
       </div>
       <ProxyTable />

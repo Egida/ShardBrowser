@@ -95,16 +95,20 @@ const TIMEOUT = 15000;
 
 // ---------- Motion: human pointer and keystrokes ----------
 //
-// The `Motion` domain lives on the BROWSER target, so it needs a browser-level
-// CDP session. These wrappers only turn a selector into the coordinates it wants.
+// The `Motion` domain is concatenated into the chrome-level protocol, and its
+// handler is built from the agent host's WebContents — so it needs a session on
+// a PAGE target. A browser-level session gets a handler with no tab behind it
+// and answers "no live frame" to every command. These wrappers only turn a
+// selector into the coordinates the domain wants.
 
-const motion = new Map(); // profile_id → { browser, session, pointer }
+const motion = new Map(); // profile_id → { page, session, pointer }
 
 async function motionFor(profileId, opts) {
-  const b = await browserFor(profileId, opts);
+  const page = await pageFor(profileId, opts);
   const cur = motion.get(profileId);
-  if (cur && cur.browser === b && b.isConnected()) return cur;
-  const m = { browser: b, session: await b.newBrowserCDPSession(), pointer: false };
+  if (cur && cur.page === page && !page.isClosed()) return cur;
+  // A new page means a new session, and a pointer that does not exist on it.
+  const m = { page, session: await page.context().newCDPSession(page), pointer: false };
   motion.set(profileId, m);
   return m;
 }
@@ -148,6 +152,37 @@ async function pointOf(page, { selector, x, y, offset_x, offset_y }) {
     throw new Error("give either a selector or both x and y");
   }
   return { x: Math.round(x), y: Math.round(y), width: 32, height: 32 };
+}
+
+// Touch and pointer are exclusive in the core: a profile claiming a touchscreen
+// refuses Motion.tap and glideTo, and one that does not refuses every finger
+// command. So the tools ask the page which it is instead of making the caller
+// remember, and the human_* tools reach for a finger when the answer is a phone.
+
+const touchClaim = new Map(); // profile_id → boolean
+
+async function isTouch(profileId, page) {
+  if (touchClaim.has(profileId)) return touchClaim.get(profileId);
+  const v = await page.evaluate(() => navigator.maxTouchPoints > 0).catch(() => false);
+  touchClaim.set(profileId, !!v);
+  return !!v;
+}
+
+// A finger needs no resting position, so unlike pointOf this carries whether a
+// selector was named: only then is the element's real width worth sending, and
+// without it the core's own 44 px assumption is the better one.
+async function fingerPoint(page, { selector, x, y, offset_x, offset_y }) {
+  const t = await pointOf(page, { selector, x, y, offset_x, offset_y });
+  return selector ? t : { ...t, width: undefined };
+}
+
+async function requireTouch(profileId, page, what) {
+  if (!(await isTouch(profileId, page))) {
+    throw new Error(
+      `${what} is a finger gesture and this profile has no touchscreen — ` +
+        "start a phone profile, or use the human_* tools",
+    );
+  }
 }
 
 async function glide(m, page, target) {
@@ -206,15 +241,20 @@ server.tool(
     color: z.string().optional(),
     // Extension-library ids; see list_extensions.
     extensions: z.array(z.string()).optional(),
+    // Claimed display refresh rate in Hz. A page reads this by timing frames,
+    // not by asking; absent means the engine's 60, which is what most machines
+    // report. Frames can only be slowed, so a rate above the host's own screen
+    // runs at the host's.
+    refresh_rate: z.number().int().min(24).max(480).optional(),
     fingerprint: z.any().optional(),
   },
-  async ({ name, notes, folder, proxy, proxy_id, platform, color, extensions, fingerprint }) => {
+  async ({ name, notes, folder, proxy, proxy_id, platform, color, extensions, refresh_rate, fingerprint }) => {
     if (!fingerprint) {
       const fp = await api(platform ? `/fingerprint/new/${platform}` : "/fingerprint/new");
       fingerprint = fp.fingerprint;
     }
     const path = folder ? `/folders/${encodeURIComponent(folder)}/profiles` : "/profiles";
-    const body = { name, notes, proxy, proxy_id, color, extensions, fingerprint };
+    const body = { name, notes, proxy, proxy_id, color, extensions, refresh_rate, fingerprint };
     if (folder) delete body.folder; // folder comes from the path
     return text(await api(path, { method: "POST", body }));
   },
@@ -244,6 +284,8 @@ server.tool(
         ]),
       )
       .optional(),
+    // Claimed display refresh rate in Hz; absent means the engine's 60.
+    refresh_rate: z.number().int().min(24).max(480).optional(),
   },
   async (args) => text(await api("/profiles/temporary", { method: "POST", body: args })),
 );
@@ -260,6 +302,8 @@ server.tool(
     proxy: z.string().optional(),
     color: z.string().optional(),
     extensions: z.array(z.string()).optional(),
+    // Claimed display refresh rate in Hz; applied after `fingerprint`.
+    refresh_rate: z.number().int().min(24).max(480).optional(),
     fingerprint: z.any().optional(),
   },
   async ({ id, ...body }) => text(await api(`/profiles/${id}`, { method: "PATCH", body })),
@@ -274,7 +318,7 @@ server.tool(
 
 server.tool(
   "start_profile",
-  "Launch a profile with CDP. Returns { pid, cdp:{ web_socket_debugger_url, http_url } }. Set headless to run without a window.",
+  "Launch a profile with CDP. Returns { pid, cdp:{ web_socket_debugger_url, http_url } }. The call waits up to 30s for the endpoint; if it still has none, cdp is null and cdp_error says why. Set headless to run without a window.",
   { id: z.string(), headless: z.boolean().optional() },
   async ({ id, headless }) =>
     text(await api(`/profiles/${id}/start`, { method: "POST", body: { headless: !!headless } })),
@@ -1432,6 +1476,14 @@ server.tool(
   },
   async ({ profile_id, selector, x, y, offset_x, offset_y }) => {
     const page = await pageFor(profile_id);
+    // A phone has no cursor and nothing to hover with. Refused rather than
+    // approximated: a menu that opens on hover has no touch equivalent, and a
+    // tap in its place would be a different thing that looked like success.
+    if (await isTouch(profile_id, page)) {
+      throw new Error(
+        "this profile is a phone and has no cursor — use touch_tap or touch_long_press",
+      );
+    }
     const m = await motionFor(profile_id);
     const t = await pointOf(page, { selector, x, y, offset_x, offset_y });
     const ms = await glide(m, page, t);
@@ -1456,6 +1508,23 @@ server.tool(
     const page = await pageFor(profile_id);
     const m = await motionFor(profile_id);
     const t = await pointOf(page, { selector, x, y, offset_x, offset_y });
+    // One tool, two bodies: the caller says WHAT, the profile decides WHAT
+    // WITH. The core refuses a pointer on a handset outright, so on a phone
+    // this has to reach for a finger — and the phone's context menu IS a
+    // long press.
+    if (await isTouch(profile_id, page)) {
+      const cmd = button === "right" ? "Motion.touchLongPress" : "Motion.touchTap";
+      const args =
+        button === "right"
+          ? { x: t.x, y: t.y }
+          : { x: t.x, y: t.y, tapCount: click_count ?? 1 };
+      if (selector) args.targetWidth = t.width;
+      const r = await m.session.send(cmd, args);
+      return text({
+        tapped: selector ?? `${t.x},${t.y}`,
+        duration_ms: r?.durationMs ?? 0,
+      });
+    }
     const ms = await glide(m, page, t);
     await m.session.send("Motion.tap", {
       button: button ?? "left",
@@ -1476,7 +1545,10 @@ server.tool(
   async ({ profile_id, text: value, allow_typos }) => {
     const page = await pageFor(profile_id);
     const m = await motionFor(profile_id);
-    await ensurePointer(m, page);
+    // enterText goes to whatever the page has focused and needs no pointer;
+    // creating one is only how a desktop profile gets its resting cursor, and
+    // on a phone the core refuses it.
+    if (!(await isTouch(profile_id, page))) await ensurePointer(m, page);
     const r = await m.session.send("Motion.enterText", {
       text: value,
       allowTypos: !!allow_typos,
@@ -1500,8 +1572,23 @@ server.tool(
     const page = await pageFor(profile_id);
     const m = await motionFor(profile_id);
     const t = await targetOf(page, selector);
-    const moved = await glide(m, page, t);
-    await m.session.send("Motion.tap", { button: "left", clickCount: clear ? 3 : 1 });
+    let moved = 0;
+    if (await isTouch(profile_id, page)) {
+      // A triple click selects the old value; a phone has no such gesture, so
+      // `clear` empties the field the way a thumb would — via the field itself.
+      const r = await m.session.send("Motion.touchTap", {
+        x: t.x,
+        y: t.y,
+        targetWidth: t.width,
+      });
+      moved = r?.durationMs ?? 0;
+      if (clear) {
+        await page.fill(selector, "").catch(() => {});
+      }
+    } else {
+      moved = await glide(m, page, t);
+      await m.session.send("Motion.tap", { button: "left", clickCount: clear ? 3 : 1 });
+    }
     const r = await m.session.send("Motion.enterText", {
       text: value,
       allowTypos: !!allow_typos,
@@ -1526,6 +1613,222 @@ server.tool(
       m.pointer = false;
     }
     return text("pointer released");
+  },
+);
+
+// ---------- Motion: finger gestures and the handset itself ----------
+//
+// The gestures a cursor cannot make. Everything above already becomes a touch
+// on a phone profile — these are the ones with no desktop twin.
+
+server.tool(
+  "touch_tap",
+  "Tap an element (or a point) with a finger. Phone profiles only. Give either selector or x+y.",
+  {
+    profile_id: z.string(),
+    selector: z.string().optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    offset_x: z.number().optional(),
+    offset_y: z.number().optional(),
+    // 2 gives a double tap with a realistic gap and a realistic offset between
+    // the two contacts.
+    tap_count: z.number().int().min(1).max(3).optional(),
+  },
+  async ({ profile_id, selector, x, y, offset_x, offset_y, tap_count }) => {
+    const page = await pageFor(profile_id);
+    await requireTouch(profile_id, page, "touch_tap");
+    const m = await motionFor(profile_id);
+    const t = await fingerPoint(page, { selector, x, y, offset_x, offset_y });
+    const r = await m.session.send("Motion.touchTap", {
+      x: t.x,
+      y: t.y,
+      ...(t.width ? { targetWidth: t.width } : {}),
+      tapCount: tap_count ?? 1,
+    });
+    return text({ tapped: selector ?? `${t.x},${t.y}`, duration_ms: r?.durationMs ?? 0 });
+  },
+);
+
+server.tool(
+  "touch_long_press",
+  "Press and hold — the gesture that opens a context menu on a phone. Phone profiles only.",
+  {
+    profile_id: z.string(),
+    selector: z.string().optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    offset_x: z.number().optional(),
+    offset_y: z.number().optional(),
+    // Omit for the profile's own hold. Whatever is asked, the core floors it
+    // above the browser's long-press threshold — a shorter hold is a slow tap
+    // and produces a click instead of a menu.
+    hold_ms: z.number().optional(),
+  },
+  async ({ profile_id, selector, x, y, offset_x, offset_y, hold_ms }) => {
+    const page = await pageFor(profile_id);
+    await requireTouch(profile_id, page, "touch_long_press");
+    const m = await motionFor(profile_id);
+    const t = await fingerPoint(page, { selector, x, y, offset_x, offset_y });
+    const r = await m.session.send("Motion.touchLongPress", {
+      x: t.x,
+      y: t.y,
+      ...(typeof hold_ms === "number" ? { holdMs: hold_ms } : {}),
+    });
+    return text({ pressed: selector ?? `${t.x},${t.y}`, duration_ms: r?.durationMs ?? 0 });
+  },
+);
+
+server.tool(
+  "touch_swipe",
+  "Swipe a finger across the glass — the way a phone scrolls. Start at a selector or x+y (default: the middle of the viewport), then give either dx+dy or to_x+to_y. Phone profiles only.",
+  {
+    profile_id: z.string(),
+    selector: z.string().optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    dx: z.number().optional(),
+    dy: z.number().optional(),
+    to_x: z.number().optional(),
+    to_y: z.number().optional(),
+    // true lifts the finger while it is still moving, which is what flings the
+    // page. Omit to let the profile decide — a fleet where every swipe flicks
+    // is as uniform as one where none do.
+    flick: z.boolean().optional(),
+  },
+  async ({ profile_id, selector, x, y, dx, dy, to_x, to_y, flick }) => {
+    const page = await pageFor(profile_id);
+    await requireTouch(profile_id, page, "touch_swipe");
+    const m = await motionFor(profile_id);
+    let from;
+    if (selector || (typeof x === "number" && typeof y === "number")) {
+      from = await fingerPoint(page, { selector, x, y });
+    } else {
+      const [w, h] = await page
+        .evaluate(() => [window.innerWidth, window.innerHeight])
+        .catch(() => [390, 844]);
+      from = { x: Math.round(w / 2), y: Math.round(h / 2) };
+    }
+    const toX = typeof to_x === "number" ? to_x : from.x + (dx ?? 0);
+    const toY = typeof to_y === "number" ? to_y : from.y + (dy ?? 0);
+    if (toX === from.x && toY === from.y) {
+      throw new Error("a swipe of nothing goes nowhere — give dx/dy or to_x/to_y");
+    }
+    const r = await m.session.send("Motion.touchSwipe", {
+      fromX: from.x,
+      fromY: from.y,
+      toX: Math.round(toX),
+      toY: Math.round(toY),
+      ...(typeof flick === "boolean" ? { flick } : {}),
+    });
+    return text({
+      from: `${from.x},${from.y}`,
+      to: `${Math.round(toX)},${Math.round(toY)}`,
+      duration_ms: r?.durationMs ?? 0,
+    });
+  },
+);
+
+server.tool(
+  "touch_drag",
+  "Press, wait for the item to be picked up, carry it and set it down — a list reorder, a card moved between columns. Different from touch_swipe in the wait, which is what makes it a drag and not a scroll. Phone profiles only.",
+  {
+    profile_id: z.string(),
+    selector: z.string().optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    to_selector: z.string().optional(),
+    to_x: z.number().optional(),
+    to_y: z.number().optional(),
+    hold_ms: z.number().optional(),
+  },
+  async ({ profile_id, selector, x, y, to_selector, to_x, to_y, hold_ms }) => {
+    const page = await pageFor(profile_id);
+    await requireTouch(profile_id, page, "touch_drag");
+    const m = await motionFor(profile_id);
+    const from = await fingerPoint(page, { selector, x, y });
+    const to = to_selector
+      ? await fingerPoint(page, { selector: to_selector })
+      : await fingerPoint(page, { x: to_x, y: to_y });
+    const r = await m.session.send("Motion.touchDrag", {
+      fromX: from.x,
+      fromY: from.y,
+      toX: to.x,
+      toY: to.y,
+      ...(typeof hold_ms === "number" ? { holdMs: hold_ms } : {}),
+    });
+    return text({
+      from: selector ?? `${from.x},${from.y}`,
+      to: to_selector ?? `${to.x},${to.y}`,
+      duration_ms: r?.durationMs ?? 0,
+    });
+  },
+);
+
+server.tool(
+  "touch_pinch",
+  "Two fingers converging on or spreading from a point. Above 1 zooms in, below 1 zooms out. Phone profiles only.",
+  {
+    profile_id: z.string(),
+    scale: z.number().positive(),
+    selector: z.string().optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    // Degrees the line between the contacts turns over the gesture. Omit for
+    // the profile's own, which is never zero — a hand cannot pinch without it.
+    rotation: z.number().optional(),
+  },
+  async ({ profile_id, scale, selector, x, y, rotation }) => {
+    const page = await pageFor(profile_id);
+    await requireTouch(profile_id, page, "touch_pinch");
+    const m = await motionFor(profile_id);
+    let at;
+    if (selector || (typeof x === "number" && typeof y === "number")) {
+      at = await fingerPoint(page, { selector, x, y });
+    } else {
+      const [w, h] = await page
+        .evaluate(() => [window.innerWidth, window.innerHeight])
+        .catch(() => [390, 844]);
+      at = { x: Math.round(w / 2), y: Math.round(h / 2) };
+    }
+    const r = await m.session.send("Motion.pinch", {
+      x: at.x,
+      y: at.y,
+      scale,
+      ...(typeof rotation === "number" ? { rotation } : {}),
+    });
+    return text({ at: `${at.x},${at.y}`, scale, duration_ms: r?.durationMs ?? 0 });
+  },
+);
+
+server.tool(
+  "rotate_screen",
+  "Turn the handset. The sensors move first and the picture commits at the end, which is the order a real phone produces. Answers when the new angle has reached the page, so screen.width read straight afterwards is already the turned one. Phone profiles only.",
+  {
+    profile_id: z.string(),
+    // Clockwise from the orientation the profile was written in.
+    angle: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]),
+    // Omit for the profile's own, drawn from its motion seed. The core clamps
+    // to 400–2000 ms: a faster turn is sampled a couple of dozen times by
+    // devicemotion and once by a 5 Hz Accelerometer, and the two APIs would
+    // then be shown different turns.
+    turn_ms: z.number().optional(),
+  },
+  async ({ profile_id, angle, turn_ms }) => {
+    const page = await pageFor(profile_id);
+    await requireTouch(profile_id, page, "rotate_screen");
+    const m = await motionFor(profile_id);
+    const r = await m.session.send("Motion.setOrientation", {
+      angle,
+      ...(typeof turn_ms === "number" ? { turnMs: turn_ms } : {}),
+    });
+    return text({
+      angle: r?.angle ?? angle,
+      type: r?.type,
+      screen_width: r?.screenWidth,
+      screen_height: r?.screenHeight,
+      duration_ms: r?.durationMs ?? 0,
+    });
   },
 );
 

@@ -4,6 +4,7 @@ import {
   specFor,
   type Block,
 } from "../../entities/automation";
+import { t, useT } from "../../shared/i18n";
 
 const CARD_W = 210;
 // A multiple of the grid, so cards stacked flush land on it and stay docked.
@@ -34,8 +35,11 @@ type Props = {
   onAddAt: (x: number, y: number) => void;
 };
 
+// The spec's label is a translation key; a block's own label is the name the
+// operator gave it when the step was made, and stays as typed.
 function title(b: Block): string {
-  return b.label || specFor(b.kind)?.label || b.kind;
+  const spec = specFor(b.kind)?.label;
+  return b.label || (spec ? t(spec) : "") || b.kind;
 }
 
 /** Where an edge leaves a card, and where it arrives. */
@@ -66,6 +70,7 @@ export function BlockCanvas({
   onDelete,
   onAddAt,
 }: Props) {
+  const t = useT();
   const host = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState({ x: 40, y: 40, k: 1 });
   const [hint, setHint] = useState<{ under?: string; before?: string } | null>(null);
@@ -386,7 +391,7 @@ export function BlockCanvas({
               <div className="flex items-center gap-1.5">
                 {entry === b.id && (
                   <span className="rounded-4 bg-primary-alpha-10 px-1 text-[10px] text-primary-base">
-                    start
+                    {t("blockCanvas.startBadge")}
                   </span>
                 )}
                 <span className="truncate text-label-xs text-text-strong-950">{title(b)}</span>
@@ -395,7 +400,10 @@ export function BlockCanvas({
                 {typeof b.params.selector === "string" && b.params.selector
                   ? b.params.selector
                   : b.params.x !== undefined
-                    ? `by position ${Math.round(Number(b.params.x))},${Math.round(Number(b.params.y))}`
+                    ? t("blockCanvas.byPosition", {
+                        x: Math.round(Number(b.params.x)),
+                        y: Math.round(Number(b.params.y)),
+                      })
                     : b.kind}
               </span>
             </div>
@@ -410,7 +418,7 @@ export function BlockCanvas({
               <button
                 key={port}
                 type="button"
-                title={port === "done" ? "When it works" : "When it fails"}
+                title={port === "done" ? t("blockCanvas.portDone") : t("blockCanvas.portFail")}
                 className={`absolute size-3 rounded-full ring-2 ring-bg-white-0 ${
                   port === "done" ? "bg-success-base" : "bg-error-base"
                 }`}
@@ -439,14 +447,14 @@ export function BlockCanvas({
                   className="rounded-6 bg-bg-white-0 px-1.5 py-0.5 text-[10px] text-text-sub-600 ring-1 ring-stroke-soft-200 hover:text-text-strong-950"
                   onClick={(e) => { e.stopPropagation(); onSetStart(b.id); }}
                 >
-                  start here
+                  {t("blockCanvas.startHere")}
                 </button>
                 <button
                   type="button"
                   className="rounded-6 bg-bg-white-0 px-1.5 py-0.5 text-[10px] text-error-base ring-1 ring-stroke-soft-200"
                   onClick={(e) => { e.stopPropagation(); onDelete(b.id); }}
                 >
-                  delete
+                  {t("blockCanvas.delete")}
                 </button>
               </div>
             )}
@@ -457,14 +465,14 @@ export function BlockCanvas({
             (The SVG lines themselves can't be clicked reliably.) */}
         {edges.map((e, i) => {
           const a = portPoint(e.from, e.port);
-          const t = inPoint(e.to);
+          const to = inPoint(e.to);
           return (
             <button
               key={"cut" + i}
               type="button"
-              title="disconnect"
+              title={t("blockCanvas.disconnect")}
               className="pointer-events-auto absolute z-20 flex size-4 items-center justify-center rounded-full bg-bg-white-0 text-[11px] leading-none text-error-base opacity-60 ring-1 ring-stroke-soft-200 hover:opacity-100 hover:ring-error-base"
-              style={{ left: (a.x + t.x) / 2 - 8, top: (a.y + t.y) / 2 - 8 }}
+              style={{ left: (a.x + to.x) / 2 - 8, top: (a.y + to.y) / 2 - 8 }}
               onMouseDown={(ev) => ev.stopPropagation()}
               onClick={(ev) => { ev.stopPropagation(); onConnect(e.from.id, e.port, null); }}
             >
@@ -475,16 +483,14 @@ export function BlockCanvas({
       </div>
 
       <div className="pointer-events-none absolute bottom-2 left-2 rounded-8 bg-bg-white-0/80 px-2 py-1 text-[10px] text-text-soft-400">
-        drag the canvas to move · wheel to zoom · right-click to add a step ·
-        right-drag to box-select · drag a dot onto another card to connect · click a
-        line to disconnect · stack cards to join them
+        {t("blockCanvas.hints")}
       </div>
       <button
         type="button"
         className="absolute bottom-2 right-2 rounded-8 bg-bg-white-0 px-2 py-1 text-[10px] text-text-sub-600 ring-1 ring-stroke-soft-200 hover:text-text-strong-950"
         onClick={() => setView({ x: 40, y: 40, k: 1 })}
       >
-        reset view
+        {t("blockCanvas.resetView")}
       </button>
     </div>
   );

@@ -6,6 +6,7 @@ import { toast } from '../../../shared/lib/toast';
 import { clip } from '../../../shared/lib/clipboard';
 import { confirmModal } from '../../../shared/lib/confirm';
 import { storeBus } from '../../../shared/lib/storeBus';
+import { t } from '../../../shared/i18n';
 import { ProfileMeta } from '../../profile/model/types';
 
 export type ProxyInfoTarget = { proxy: ProxyEntry; anchor: { x: number; y: number } };
@@ -201,8 +202,8 @@ export const useProxy = create<ProxyStore>((set, get) => ({
         } catch (e) { toast.err(String(e)); }
     },
     removeProxy: async (id) => {
-        if ((await confirmModal({ title: "Delete proxy", message: "Delete this proxy?", danger: true })) !== true) return;
-        try { await proxyDelete(id); get().reload(); storeBus.emit('proxies'); toast.ok("Proxy deleted"); }
+        if ((await confirmModal({ title: t("useProxy.deleteTitle"), message: t("useProxy.deleteMessage"), danger: true })) !== true) return;
+        try { await proxyDelete(id); get().reload(); storeBus.emit('proxies'); toast.ok(t("useProxy.deleted")); }
         catch (e) { toast.err(String(e)); }
     },
     // Capped-parallel bulk TCP/UDP/geo to avoid socket fan-out.
@@ -210,7 +211,7 @@ export const useProxy = create<ProxyStore>((set, get) => ({
         const { proxySel, proxies, testProxy } = get();
         const ids = [...proxySel];
         if (ids.length === 0) return;
-        toast.info(`Testing ${ids.length} prox${ids.length === 1 ? "y" : "ies"}…`);
+        toast.info(ids.length === 1 ? t("useProxy.testingOne", { n: ids.length }) : t("useProxy.testingMany", { n: ids.length }));
         const targets = proxies.filter((p) => proxySel.has(p.id));
         const CONCURRENCY = 5;
         let i = 0;
@@ -223,20 +224,20 @@ export const useProxy = create<ProxyStore>((set, get) => ({
                 }
             }),
         );
-        toast.ok("Bulk test done");
+        toast.ok(t("useProxy.bulkTestDone"));
     },
     bulkDelete: async () => {
         const { proxySel } = get();
         const ids = [...proxySel];
         if (ids.length === 0) return;
-        if ((await confirmModal({ title: "Delete proxies", message: `Delete ${ids.length} prox${ids.length === 1 ? "y" : "ies"}?`, danger: true })) !== true) return;
+        if ((await confirmModal({ title: t("useProxy.bulkDeleteTitle"), message: ids.length === 1 ? t("useProxy.bulkDeleteOneMessage", { n: ids.length }) : t("useProxy.bulkDeleteManyMessage", { n: ids.length }), danger: true })) !== true) return;
         for (const id of ids) {
             try { await proxyDelete(id); } catch (e) { toast.err(String(e)); }
         }
         get().clearSelected();
         get().reload();
         storeBus.emit('proxies');
-        toast.ok(`Deleted ${ids.length}`);
+        toast.ok(t("useProxy.deletedCount", { n: ids.length }));
     },
     // Export in bulk-import format so a round-trip preserves the name.
     bulkExport: () => {
@@ -253,8 +254,8 @@ export const useProxy = create<ProxyStore>((set, get) => ({
         });
         const text = lines.join("\n");
         clip.write(text).then(
-            () => toast.ok(`Copied ${targets.length} to clipboard`),
-            (e) => toast.err("Copy failed: " + String(e)),
+            () => toast.ok(t("useProxy.copiedCount", { n: targets.length })),
+            (e) => toast.err(t("useProxy.copyFailed", { error: String(e) })),
         );
     },
     // One proxy per profile, in the order shown, stopping when the proxies run
@@ -275,7 +276,7 @@ export const useProxy = create<ProxyStore>((set, get) => ({
         set({ distributeOpen: false });
         get().reload();
         storeBus.emit('profiles');
-        toast.ok(`Bound ${bound} profile${bound === 1 ? '' : 's'}`);
+        toast.ok(bound === 1 ? t("useProxy.boundOne", { n: bound }) : t("useProxy.boundMany", { n: bound }));
         return bound;
     },
 
@@ -283,11 +284,11 @@ export const useProxy = create<ProxyStore>((set, get) => ({
     bulkImportClipboard: async () => {
         try {
             const text = await clip.read();
-            if (!text.trim()) { toast.err("Clipboard is empty"); return; }
+            if (!text.trim()) { toast.err(t("useProxy.clipboardEmpty")); return; }
             const n = await proxyBulkImport(text, "socks5");
             get().reload();
             storeBus.emit('proxies');
-            toast.ok(`Imported ${n} prox${n === 1 ? "y" : "ies"}`);
-        } catch (e) { toast.err("Import failed: " + String(e)); }
+            toast.ok(n === 1 ? t("useProxy.importedOne", { n }) : t("useProxy.importedMany", { n }));
+        } catch (e) { toast.err(t("useProxy.importFailed", { error: String(e) })); }
     },
 }))

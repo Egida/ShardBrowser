@@ -2,12 +2,14 @@ import { useState } from "react";
 import { Modal, Button } from "@proxyshard/shardx-ui-kit";
 import Badge from "../../../shared/ui/Badge";
 import { useGpuCompat } from "../../../shared/model/gpuCompat";
+import { useT } from "../../../shared/i18n";
 import type { GpuCompat } from "../../../entities/fingerprint/model/types";
 
 /// The one text that explains an incompatible fingerprint, used by both the
 /// badge and the warning dialog — so the operator reads the same reason
 /// wherever they meet it.
 export function IncompatibleExplainer({ compat }: { compat: GpuCompat }) {
+  const t = useT();
   const caps = useGpuCompat((s) => s.caps);
   const missing = [...compat.missing_webgl1, ...compat.missing_webgl2];
   const unique = Array.from(new Set(missing));
@@ -15,25 +17,24 @@ export function IncompatibleExplainer({ compat }: { compat: GpuCompat }) {
   return (
     <div className="flex flex-col gap-3 text-paragraph-sm text-text-sub-600">
       <p className="m-0">
-        This fingerprint claims a GPU your machine does not have, and asks for
-        {missing.length > 0 ? " WebGL extensions" : ""}
-        {missing.length > 0 && gpuMissing.length > 0 ? " and" : ""}
-        {gpuMissing.length > 0 ? " WebGPU features" : ""}
-        {" "}your driver cannot provide.
+        {t("incompatibleNotice.claimsIntro")}
+        {missing.length > 0 ? t("incompatibleNotice.webglExtensionsPart") : ""}
+        {missing.length > 0 && gpuMissing.length > 0 ? t("incompatibleNotice.andPart") : ""}
+        {gpuMissing.length > 0 ? t("incompatibleNotice.webgpuFeaturesPart") : ""}
+        {" "}{t("incompatibleNotice.claimsOutro")}
       </p>
       <div className="rounded-lg bg-bg-weak-50 p-3 text-paragraph-xs">
         <div>
-          <span className="text-text-soft-400">Profile claims</span>{" "}
+          <span className="text-text-soft-400">{t("incompatibleNotice.profileClaims")}</span>{" "}
           <span className="text-text-strong-950">{compat.profile_renderer || "—"}</span>
         </div>
         <div>
-          <span className="text-text-soft-400">This machine has</span>{" "}
-          <span className="text-text-strong-950">{caps?.renderer || "unknown"}</span>
+          <span className="text-text-soft-400">{t("incompatibleNotice.thisMachineHas")}</span>{" "}
+          <span className="text-text-strong-950">{caps?.renderer || t("incompatibleNotice.unknownRenderer")}</span>
         </div>
       </div>
       <p className="m-0">
-        The browser reports the profile's extension list, but it cannot make an
-        extension work. So a page reads this:
+        {t("incompatibleNotice.reportsListNote")}
       </p>
       <pre className="m-0 overflow-x-auto rounded-lg bg-bg-weak-50 p-3 text-paragraph-xs">
 {`gl.getSupportedExtensions()
@@ -43,16 +44,13 @@ gl.getExtension("${unique[0] ?? "WEBGL_compressed_texture_astc"}")
   -> null`}
       </pre>
       <p className="m-0">
-        The list says the extension is there and the object says it is not. That
-        is not a weaker disguise — it is a self-contradiction, and it costs a
-        detector two calls with no permission, no timing and no reference
-        device. Anti-fraud systems check exactly this pair, because it is the
-        cheapest way to catch a rewritten extension list.
+        {t("incompatibleNotice.contradictionNote")}
       </p>
       <div>
         <div className="mb-1 text-paragraph-xs text-text-soft-400">
-          {unique.length} extension{unique.length === 1 ? "" : "s"} this machine
-          cannot back:
+          {unique.length === 1
+            ? t("incompatibleNotice.extensionsUnbackedOne", { n: unique.length })
+            : t("incompatibleNotice.extensionsUnbackedMany", { n: unique.length })}
         </div>
         <div className="max-h-32 overflow-y-auto rounded-lg bg-bg-weak-50 p-3 font-mono text-paragraph-xs text-text-strong-950">
           {unique.map((e) => (
@@ -63,8 +61,9 @@ gl.getExtension("${unique[0] ?? "WEBGL_compressed_texture_astc"}")
       {gpuMissing.length > 0 && (
         <div>
           <div className="mb-1 text-paragraph-xs text-text-soft-400">
-            {gpuMissing.length} WebGPU feature{gpuMissing.length === 1 ? "" : "s"}{" "}
-            this machine cannot back:
+            {gpuMissing.length === 1
+              ? t("incompatibleNotice.webgpuUnbackedOne", { n: gpuMissing.length })
+              : t("incompatibleNotice.webgpuUnbackedMany", { n: gpuMissing.length })}
           </div>
           <div className="max-h-32 overflow-y-auto rounded-lg bg-bg-weak-50 p-3 font-mono text-paragraph-xs text-text-strong-950">
             {gpuMissing.map((f) => (
@@ -72,16 +71,12 @@ gl.getExtension("${unique[0] ?? "WEBGL_compressed_texture_astc"}")
             ))}
           </div>
           <p className="m-0 mt-1.5 text-paragraph-xs text-text-soft-400">
-            These behave differently from the extensions above: the browser does
-            not claim them. It reports the profile's list narrowed to what this
-            machine really has, so nothing contradicts itself — the adapter just
-            reports a shorter list than the device the profile names would.
+            {t("incompatibleNotice.webgpuNote")}
           </p>
         </div>
       )}
       <p className="m-0 text-text-soft-400">
-        Pick a fingerprint whose GPU family matches this machine, or run this one
-        on a host that has the hardware.
+        {t("incompatibleNotice.advice")}
       </p>
     </div>
   );
@@ -91,6 +86,7 @@ gl.getExtension("${unique[0] ?? "WEBGL_compressed_texture_astc"}")
 /// explanation above; it is not a tooltip, because the reason is longer than a
 /// tooltip should be and the operator needs to be able to read it slowly.
 export function IncompatibleBadge({ compat }: { compat: GpuCompat }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   if (compat.compatible) return null;
   return (
@@ -102,7 +98,7 @@ export function IncompatibleBadge({ compat }: { compat: GpuCompat }) {
         role="button"
         tabIndex={0}
         className="flex-none cursor-pointer select-none"
-        title="This fingerprint does not fit this machine's GPU — click for why"
+        title={t("incompatibleNotice.badgeTitle")}
         onClick={(e) => {
           e.stopPropagation();
           setOpen(true);
@@ -115,18 +111,18 @@ export function IncompatibleBadge({ compat }: { compat: GpuCompat }) {
           }
         }}
       >
-        GPU mismatch
+        {t("incompatibleNotice.badgeLabel")}
       </Badge>
       {open && (
         <Modal
           open
           onClose={() => setOpen(false)}
-          title="This fingerprint does not fit this machine"
+          title={t("incompatibleNotice.badgeModalTitle")}
           maxWidthClassName="max-w-lg"
           footer={
             <div className="flex justify-end">
               <Button size="small" variant="neutral" mode="stroke" onClick={() => setOpen(false)}>
-                Close
+                {t("incompatibleNotice.closeButton")}
               </Button>
             </div>
           }
@@ -151,6 +147,7 @@ export function IncompatibleWarningModal({
   onKeep: () => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const [dontWarn, setDontWarn] = useState(false);
   const setSuppressed = useGpuCompat((s) => s.setSuppressed);
   const keep = () => {
@@ -161,7 +158,7 @@ export function IncompatibleWarningModal({
     <Modal
       open
       onClose={onCancel}
-      title="This fingerprint does not fit this machine"
+      title={t("incompatibleNotice.warningModalTitle")}
       maxWidthClassName="max-w-lg"
       footer={
         <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
@@ -172,14 +169,14 @@ export function IncompatibleWarningModal({
               checked={dontWarn}
               onChange={(e) => setDontWarn(e.target.checked)}
             />
-            <span className="min-w-0">Don't warn me again</span>
+            <span className="min-w-0">{t("incompatibleNotice.dontWarnAgain")}</span>
           </label>
           <div className="flex flex-none gap-2">
             <Button size="small" variant="neutral" mode="stroke" onClick={onCancel}>
-              Pick another
+              {t("incompatibleNotice.pickAnother")}
             </Button>
             <Button size="small" variant="error" mode="filled" onClick={keep}>
-              Use it anyway
+              {t("incompatibleNotice.useAnyway")}
             </Button>
           </div>
         </div>

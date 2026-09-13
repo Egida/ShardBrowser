@@ -8,6 +8,7 @@ import {
   type Project,
 } from "../../entities/automation";
 import { MultiSelect, type MSOption } from "../../shared/ui/MultiSelect";
+import { useT } from "../../shared/i18n";
 import {
   psCountries,
   psRegions,
@@ -48,6 +49,7 @@ function ProjectField({
   name: string;
   onParam: (id: string, key: string, value: unknown) => void;
 }) {
+  const t = useT();
   const projects = useProjects();
   const value = String(block.params[name] ?? "");
   return (
@@ -63,7 +65,7 @@ function ProjectField({
         );
       }}
     >
-      <option value="">pick a flow</option>
+      <option value="">{t("stepDetails.pickFlow")}</option>
       {projects.map((p) => (
         <option key={p.id} value={p.id}>{p.name}</option>
       ))}
@@ -83,6 +85,7 @@ function ProjectStepField({
   of: string;
   onParam: (id: string, key: string, value: unknown) => void;
 }) {
+  const t = useT();
   const projects = useProjects();
   const chosen = projects.find((p) => p.id === String(block.params[of] ?? ""));
   const entries = (chosen?.blocks ?? []).filter((b) => b.kind === "flow.entry");
@@ -93,7 +96,7 @@ function ProjectStepField({
       value={String(block.params[name] ?? "")}
       onChange={(e) => onParam(block.id, name, e.target.value)}
     >
-      <option value="">where it starts on its own</option>
+      <option value="">{t("stepDetails.entryDefault")}</option>
       {entries.map((b) => (
         <option key={b.id} value={b.id}>
           {String(b.params.name ?? "") || b.label || b.id.slice(0, 6)}
@@ -114,6 +117,7 @@ function ResiLocField({
   block: Block;
   onChange: (v: string) => void;
 }) {
+  const t = useT();
   const plan = String(block.params.plan ?? "standart");
   const country = single(block.params.country);
   const region = single(block.params.region);
@@ -148,10 +152,10 @@ function ResiLocField({
   }, [gate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const need =
-    source === "region" && !country ? "pick a single country first"
-    : source === "city" && !region ? "pick a single region first"
-    : source === "isp" && plan !== "premium" ? "premium plan only"
-    : source === "isp" && !city ? "pick a single city first"
+    source === "region" && !country ? t("stepDetails.needCountry")
+    : source === "city" && !region ? t("stepDetails.needRegion")
+    : source === "isp" && plan !== "premium" ? t("stepDetails.ispPremiumOnly")
+    : source === "isp" && !city ? t("stepDetails.needCity")
     : "";
 
   return (
@@ -161,7 +165,7 @@ function ResiLocField({
       options={opts}
       loading={loading}
       disabled={!!need}
-      placeholder={need || "any"}
+      placeholder={need || t("stepDetails.anyPlaceholder")}
       // Only the country picks several (a random one each run). The deeper
       // levels are a single choice, and only when exactly one country is set.
       single={source !== "country"}
@@ -191,6 +195,7 @@ function BranchField({
   self: string;
   onChange: (b: Branch) => void;
 }) {
+  const t = useT();
   const kind = branchKind(value);
   return (
     <div className="flex flex-col gap-1">
@@ -207,17 +212,17 @@ function BranchField({
           else onChange(k as Branch);
         }}
       >
-        <option value="next">Go to the next step</option>
-        <option value="goto">Jump to a step…</option>
-        <option value="retry">Try again…</option>
-        <option value="endpass">End this pass</option>
-        <option value="stop">Stop this thread</option>
+        <option value="next">{t("stepDetails.branchNext")}</option>
+        <option value="goto">{t("stepDetails.branchGoto")}</option>
+        <option value="retry">{t("stepDetails.branchRetry")}</option>
+        <option value="endpass">{t("stepDetails.branchEndPass")}</option>
+        <option value="stop">{t("stepDetails.branchStop")}</option>
       </select>
 
       {kind === "goto" &&
         !steps.some((x) => x.id === (value as { goto: string }).goto) && (
           <div className="rounded-8 bg-warning-alpha-16 px-2 py-1 text-[11px] text-warning-base">
-            The step this pointed at is gone — the run carries on to the next one.
+            {t("stepDetails.gotoMissing")}
           </div>
         )}
 
@@ -250,10 +255,11 @@ function BranchField({
 /** The selected block's settings. Kept out of the canvas so a long parameter
  *  list never changes where the cards are. */
 export function StepDetails({ block, steps, onParam, onSecret, onBranch, onToggle }: Props) {
+  const t = useT();
   if (!block) {
     return (
       <p className="m-0 py-8 text-center text-paragraph-xs text-text-soft-400">
-        Pick a step on the canvas to see its settings.
+        {t("stepDetails.emptyState")}
       </p>
     );
   }
@@ -263,10 +269,10 @@ export function StepDetails({ block, steps, onParam, onSecret, onBranch, onToggl
     <div className="flex flex-col gap-2">
       <div>
         <div className="text-label-sm text-text-strong-950">
-          {block.label || spec?.label || block.kind}
+          {block.label || (spec?.label ? t(spec.label) : "") || block.kind}
         </div>
         {spec?.about && (
-          <div className="text-paragraph-xs text-text-soft-400">{spec.about}</div>
+          <div className="text-paragraph-xs text-text-soft-400">{t(spec.about)}</div>
         )}
       </div>
 
@@ -279,7 +285,7 @@ export function StepDetails({ block, steps, onParam, onSecret, onBranch, onToggl
         if (!sel && !hasXY) return null;
         return sel ? (
           <div className="rounded-8 bg-bg-weak-50 px-2 py-1.5">
-            <div className="text-subheading-2xs text-text-soft-400">Targets</div>
+            <div className="text-subheading-2xs text-text-soft-400">{t("stepDetails.targets")}</div>
             <code className="block break-all text-[11px] text-text-strong-950">
               {String(sel)}
             </code>
@@ -287,12 +293,13 @@ export function StepDetails({ block, steps, onParam, onSecret, onBranch, onToggl
         ) : (
           <div className="rounded-8 bg-warning-alpha-16 px-2 py-1.5">
             <div className="text-subheading-2xs text-warning-base">
-              By position — {Math.round(Number(block.params.x))},{" "}
-              {Math.round(Number(block.params.y))}
+              {t("stepDetails.byPosition", {
+                x: Math.round(Number(block.params.x)),
+                y: Math.round(Number(block.params.y)),
+              })}
             </div>
             <div className="text-[11px] text-text-soft-400">
-              Nothing unique was found for it. Type a selector above, or read what
-              was tried:
+              {t("stepDetails.noSelectorHelp")}
             </div>
             {Array.isArray(block.params._tried) && block.params._tried.length > 0 && (
               <ul className="mt-1 list-none space-y-0.5 p-0 font-mono text-[10px] text-text-soft-400">
@@ -310,12 +317,12 @@ export function StepDetails({ block, steps, onParam, onSecret, onBranch, onToggl
         className="self-start text-paragraph-xs text-text-soft-400 hover:text-text-strong-950"
         onClick={() => onToggle(block.id)}
       >
-        {block.enabled ? "Enabled — click to skip" : "Skipped — click to enable"}
+        {block.enabled ? t("stepDetails.enabledToggle") : t("stepDetails.skippedToggle")}
       </button>
 
       {(spec?.params ?? []).map((prm) => (
         <label key={prm.name} className="flex flex-col gap-1">
-          <span className="text-subheading-2xs text-text-soft-400">{prm.label}</span>
+          <span className="text-subheading-2xs text-text-soft-400">{t(prm.label)}</span>
           <div className="flex items-center gap-1.5">
             {prm.kind === "project" ? (
               <ProjectField block={block} name={prm.name} onParam={onParam} />
@@ -335,7 +342,7 @@ export function StepDetails({ block, steps, onParam, onSecret, onBranch, onToggl
             ) : prm.kind === "textarea" ? (
               <textarea
                 className="min-h-20 flex-1 rounded-8 bg-bg-white-0 p-2 font-mono text-[11px] text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200 outline-none placeholder:text-text-soft-400 focus:ring-primary-base"
-                placeholder={prm.hint}
+                placeholder={prm.hint ? t(prm.hint) : undefined}
                 value={String(block.params[prm.name] ?? prm.default ?? "")}
                 onChange={(e) => onParam(block.id, prm.name, e.target.value)}
               />
@@ -346,14 +353,14 @@ export function StepDetails({ block, steps, onParam, onSecret, onBranch, onToggl
                 onChange={(e) => onParam(block.id, prm.name, e.target.value)}
               >
                 {prm.options.map((o) => (
-                  <option key={o} value={o}>{o === "" ? "any" : o}</option>
+                  <option key={o} value={o}>{o === "" ? t("stepDetails.anyOption") : o}</option>
                 ))}
               </select>
             ) : (
               <input
                 type={prm.kind === "number" ? "number" : "text"}
                 className="h-8 flex-1 rounded-8 bg-bg-white-0 px-2 text-paragraph-sm text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200 outline-none placeholder:text-text-soft-400 focus:ring-primary-base"
-                placeholder={prm.hint}
+                placeholder={prm.hint ? t(prm.hint) : undefined}
                 value={String(block.params[prm.name] ?? prm.default ?? "")}
                 onChange={(e) =>
                   onParam(
@@ -369,8 +376,8 @@ export function StepDetails({ block, steps, onParam, onSecret, onBranch, onToggl
                 type="button"
                 title={
                   block.secrets.includes(prm.name)
-                    ? "Kept out of an export"
-                    : "Keep this out of an export"
+                    ? t("stepDetails.secretOn")
+                    : t("stepDetails.secretOff")
                 }
                 className={`rounded-8 px-1.5 py-1 text-[10px] ring-1 ring-inset ${
                   block.secrets.includes(prm.name)
@@ -379,7 +386,7 @@ export function StepDetails({ block, steps, onParam, onSecret, onBranch, onToggl
                 }`}
                 onClick={() => onSecret(block.id, prm.name)}
               >
-                secret
+                {t("stepDetails.secretButton")}
               </button>
             )}
           </div>
@@ -388,14 +395,14 @@ export function StepDetails({ block, steps, onParam, onSecret, onBranch, onToggl
 
       <div className="mt-1 flex flex-col gap-2 border-t border-stroke-soft-200 pt-2">
         <BranchField
-          title="When it works"
+          title={t("stepDetails.onDoneTitle")}
           value={block.on_done}
           steps={steps}
           self={block.id}
           onChange={(v) => onBranch(block.id, "on_done", v)}
         />
         <BranchField
-          title="When it fails"
+          title={t("stepDetails.onFailTitle")}
           value={block.on_fail}
           steps={steps}
           self={block.id}

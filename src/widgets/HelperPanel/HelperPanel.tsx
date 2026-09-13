@@ -3,16 +3,8 @@ import {
   helperFields, helperFill, helperClose, helperDismiss, type HelperField,
 } from "../../entities/profile/model/api";
 import { SyncIcon } from "../../shared/icons";
+import { useT } from "../../shared/i18n";
 import { dragWindowOnMouseDown } from "../../shared/lib/dragWindow";
-
-/** What a kind is called to a person. */
-const LABELS: Record<string, string> = {
-  first_name: "First name", last_name: "Last name", full_name: "Full name",
-  email: "Email", username: "Username", phone: "Phone", country: "Country", city: "City",
-  postal_code: "Postcode", street: "Address",
-  birth_day: "Birth day", birth_month: "Birth month", birth_year: "Birth year",
-  birth_date: "Date of birth", gender: "Gender",
-};
 
 /**
  * Shard Helper: offers to fill a form the browser noticed. It only ever offers —
@@ -20,6 +12,7 @@ const LABELS: Record<string, string> = {
  * has nothing left to fill.
  */
 export function HelperPanel({ profile }: { profile: string }) {
+  const t = useT();
   const [fields, setFields] = useState<HelperField[]>([]);
   const [busy, setBusy] = useState(false);
   const [filled, setFilled] = useState(0);
@@ -41,6 +34,18 @@ export function HelperPanel({ profile }: { profile: string }) {
     return () => { alive = false; clearInterval(id); };
   }, [profile]);
 
+  /** What a kind is called to a person. */
+  const LABELS: Record<string, string> = {
+    first_name: t("helperPanel.firstName"), last_name: t("helperPanel.lastName"),
+    full_name: t("helperPanel.fullName"),
+    email: t("helperPanel.email"), username: t("helperPanel.username"),
+    phone: t("helperPanel.phone"), country: t("helperPanel.country"), city: t("helperPanel.city"),
+    postal_code: t("helperPanel.postcode"), street: t("helperPanel.address"),
+    birth_day: t("helperPanel.birthDay"), birth_month: t("helperPanel.birthMonth"),
+    birth_year: t("helperPanel.birthYear"),
+    birth_date: t("helperPanel.birthDate"), gender: t("helperPanel.gender"),
+  };
+
   const kinds = [...new Set(fields.map((f) => f.kind))];
 
   return (
@@ -51,10 +56,10 @@ export function HelperPanel({ profile }: { profile: string }) {
       <div className="flex shrink-0 select-none items-center gap-2 px-3 pt-2.5 pb-1">
         <SyncIcon className="size-4 shrink-0 text-primary-base" />
         <div className="flex-1 truncate text-label-xs text-text-strong-950">
-          Fillable form
+          {t("helperPanel.title")}
         </div>
         <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={() => void helperDismiss(profile)}
-                title="Dismiss"
+                title={t("helperPanel.dismiss")}
                 className="rounded-4 px-1.5 text-paragraph-xs text-text-soft-400 hover:bg-bg-weak-50">
           ✕
         </button>
@@ -85,10 +90,12 @@ export function HelperPanel({ profile }: { profile: string }) {
           className="w-full rounded-8 bg-primary-base py-1.5 text-label-xs text-static-white hover:bg-primary-darker disabled:opacity-50"
         >
           {filled > 1
-            ? `Filled ${filled} windows — fill again`
+            ? t("helperPanel.filledWindows", { n: filled })
             : filled === 1
-              ? "Fill again"
-              : `Fill ${fields.length} field${fields.length === 1 ? "" : "s"}`}
+              ? t("helperPanel.fillAgain")
+              : fields.length === 1
+                ? t("helperPanel.fillOneField")
+                : t("helperPanel.fillFields", { n: fields.length })}
         </button>
       </div>
     </div>

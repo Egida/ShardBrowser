@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { toast } from "../../../shared/lib/toast";
 import { confirmModal } from "../../../shared/lib/confirm";
 import { storeBus } from "../../../shared/lib/storeBus";
+import { t } from "../../../shared/i18n";
 import { trashEmpty, trashList, trashPurge, trashRestore } from "../model/api";
 import type { TrashEntry } from "../model/types";
 
@@ -39,15 +40,15 @@ export const useTrash = create<TrashStore>((set, get) => ({
       const meta = await trashRestore(e.id);
       await get().reload();
       storeBus.emit("profiles");
-      toast.ok(`Restored "${meta.name}"`);
+      toast.ok(t("useTrash.restored", { name: meta.name }));
     } catch (err) { toast.err(String(err)); }
     finally { set({ busy: null }); }
   },
 
   purge: async (e) => {
     const ok = await confirmModal({
-      title: "Delete for good",
-      message: `"${e.name}" cannot be brought back after this.`,
+      title: t("useTrash.purgeTitle"),
+      message: t("useTrash.purgeMessage", { name: e.name }),
       danger: true,
     });
     if (ok !== true) return;
@@ -59,15 +60,15 @@ export const useTrash = create<TrashStore>((set, get) => ({
     const n = get().items.length;
     if (n === 0) return;
     const ok = await confirmModal({
-      title: "Empty the trash",
-      message: `Delete ${n} profile${n === 1 ? "" : "s"} for good?`,
+      title: t("useTrash.emptyTitle"),
+      message: n === 1 ? t("useTrash.emptyMessageOne") : t("useTrash.emptyMessageMany", { n }),
       danger: true,
     });
     if (ok !== true) return;
     try {
       await trashEmpty();
       await get().reload();
-      toast.ok(`Deleted ${n}`);
+      toast.ok(t("useTrash.deletedCount", { n }));
     } catch (err) { toast.err(String(err)); }
   },
 }));

@@ -92,10 +92,11 @@ Configuration details are available in [Usage](#usage).
 ## What it is
 
 ShardX can run hundreds of isolated browser identities side by side.
-Each profile defines a complete device identity, including GPU, screen,
-fonts, audio settings, timezone, locale, WebGL and WebGPU capabilities,
-TLS ClientHello, UA-CH, WebRTC policy, geolocation and cookies. The
-signals within a profile are kept consistent with one another.
+Each profile defines a complete device identity, including GPU, screen
+and its refresh rate, fonts, audio settings, timezone, locale, WebGL and
+WebGPU capabilities, TLS ClientHello, UA-CH, WebRTC policy, geolocation
+and cookies. The signals within a profile are kept consistent with one
+another.
 
 Fingerprint changes are applied inside Chromium's C++ engine, including
 Blink, V8 and the network stack. ShardX does not rely on JavaScript
@@ -622,8 +623,11 @@ fingerprint.
 | --- | --- | --- |
 | `Motion.createPointer` | `x`, `y`, `paceScale?`, `seed?` | No fields |
 | `Motion.glideTo` | `x`, `y`, `targetWidth?` | `durationMs` |
-| `Motion.tap` | `button?`, `clickCount?` | No fields |
+| `Motion.tap` | `button?`, `clickCount?` | `durationMs` |
+| `Motion.dragTo` | `x`, `y`, `targetWidth?`, `button?` | `durationMs` |
+| `Motion.wheel` | `deltaY`, `deltaX?` | `durationMs` |
 | `Motion.enterText` | `text`, `allowTypos?` | `durationMs` |
+| `Motion.pressKey` | `key`, `modifiers?` | `durationMs` |
 | `Motion.destroyPointer` | No parameters | No fields |
 
 * Coordinates are **viewport CSS pixels**.
@@ -691,6 +695,82 @@ await s.send("Motion.destroyPointer");
 Typing happens in real time. `enterText` returns only when the last key is
 released, and `durationMs` reports how long it took. Allow as much time as
 you would for a person typing the same text.
+
+`wheel` scrolls with the device the profile's platform implies — a
+trackpad on macOS, a notched wheel on Windows and Linux, where the
+distance delivered is rounded to whole detents. It deliberately does not
+move the pointer: a scroll happens under whatever the cursor is already
+over. `pressKey` takes a UI Events name (`Enter`, `Tab`, `ArrowDown`,
+`F5`) and resolves a printable character through the **profile's** keyboard
+layout, so on a `ru-RU` profile the key a US layout calls `a` reports code
+`KeyA`.
+
+#### Finger gestures and the handset
+
+A profile that claims a touchscreen has no cursor, and the core enforces
+it in both directions: the pointer commands above are refused on such a
+profile, and the ones below are refused on every other. A phone that
+moves a cursor and hovers has contradicted itself before any statistical
+check on the motion begins.
+
+| Command | Parameters | Returns |
+| --- | --- | --- |
+| `Motion.touchTap` | `x`, `y`, `targetWidth?`, `tapCount?` | `durationMs` |
+| `Motion.touchLongPress` | `x`, `y`, `holdMs?` | `durationMs` |
+| `Motion.touchSwipe` | `fromX`, `fromY`, `toX`, `toY`, `flick?` | `durationMs` |
+| `Motion.touchDrag` | `fromX`, `fromY`, `toX`, `toY`, `holdMs?` | `durationMs` |
+| `Motion.pinch` | `x`, `y`, `scale`, `rotation?` | `durationMs` |
+| `Motion.setOrientation` | `angle`, `turnMs?` | `angle`, `type`, `screenWidth`, `screenHeight`, `durationMs` |
+
+* Unlike the pointer, a finger is **not on the glass between commands**.
+  Each command places its own contacts, plays the whole gesture and lifts
+  them, so there is no `createPointer` equivalent and no way to leave a
+  contact down across two calls.
+* The contact reported is offset from the point you ask for by the
+  profile's own fat-finger bias plus per-tap scatter — the sensed centroid
+  of a fingertip is not where its owner thinks it is. `targetWidth`
+  defaults to 44, the smallest target the platform guidelines call
+  tappable.
+* There is **no touchScroll and no fling command**, and that is not an
+  omission. Gestures are built in the browser out of the touch stream, so
+  a real swipe produces `GestureScrollBegin/Update/End` and
+  `GestureFlingStart` with the velocity the browser's own tracker fitted
+  from the last 100 ms of the stroke. `flick` decides whether the finger
+  lifts while still moving.
+* `touchDrag` differs from `touchSwipe` in the one way that decides
+  everything: the contact stays still, inside the tap slop, until the
+  long-press timers have fired. That is when a page's drag-and-drop
+  starts. A stroke that begins earlier is a scroll.
+* `pinch` fails rather than producing a gesture the browser will not
+  recognise — the initial separation must clear the minimum scaling span
+  and the span must then change by more than the slop. A pinch below those
+  thresholds delivers DOM touch events and no zoom at all, which looks
+  like success and is not.
+* `setOrientation` is **physical and takes time**. The pose the sensors
+  report starts moving first and the screen angle commits at the end of
+  the ramp, 150–500 ms later, which is the order a handset produces. It
+  answers once the new angle has reached every renderer, so `screen.width`
+  read straight afterwards is already the turned one. `angle` is 0, 90,
+  180 or 270; anything else is refused rather than rounded. It is refused
+  too on a profile with no motion sensors: a device with no accelerometer
+  cannot notice that it has been turned.
+
+```js
+const s = await browser.target().createCDPSession();
+await s.send("Motion.touchSwipe", { fromX: 200, fromY: 600,
+                                    toX: 200, toY: 200, flick: true });
+await s.send("Motion.touchLongPress", { x: 200, y: 300 });
+await s.send("Motion.pinch", { x: 200, y: 400, scale: 2 });
+const r = await s.send("Motion.setOrientation", { angle: 90 });
+// r → { angle: 90, type: "landscape-primary", screenWidth: 844, ... }
+```
+
+In the desktop **Automation** section the same gestures are the *Touch*
+palette — `touch.tap`, `touch.longPress`, `touch.swipe`, `touch.drag`,
+`touch.pinch` and `screen.rotate` — and the ordinary steps become touches
+by themselves on a phone profile: `click` taps, `rightClick` long-presses,
+`scroll` and `swipe` use a finger. `hover` is the one that refuses, since
+there is nothing to hover with.
 
 ### 3. MCP server
 

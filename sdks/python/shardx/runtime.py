@@ -21,7 +21,7 @@ import httpx
 PUB_BASE = "https://pub-e57a7c60f6934eb09a6600bf2fc59cdc.r2.dev"
 CHROMIUM_VERSION = "152.0.7977.65"
 # This SDK's own version, compared against the manifest's `min_sdk_version`.
-SDK_VERSION = "2.0.2"
+SDK_VERSION = "2.0.3"
 # Version manifest (GitHub raw) — one tiny GET tells us every archive's current
 # etag, so we never poll R2/S3 (no per-archive HEAD). Updated archives are then
 # pulled from PUB_BASE only when their etag changed.
@@ -262,7 +262,7 @@ class Runtime:
         """Build stamp on disk: `<engine>/shardx-build` when the archive ships
         one, else what was recorded at install time."""
         try:
-            stamp = (self.root / self._spec.binary_subpath[0] / "shardx-build").read_text().strip()
+            stamp = (self.root / self._spec.binary_subpath[0] / "shardx-build").read_text(encoding="utf-8").strip()
             if stamp:
                 return stamp
         except OSError:
@@ -280,12 +280,12 @@ class Runtime:
 
     def _load_manifest(self) -> dict:
         try:
-            return json.loads(self.manifest_path.read_text())
+            return json.loads(self.manifest_path.read_text(encoding="utf-8"))
         except Exception:
             return {}
 
     def _save_manifest(self, m: dict) -> None:
-        self.manifest_path.write_text(json.dumps(m, indent=2))
+        self.manifest_path.write_text(json.dumps(m, indent=2), encoding="utf-8")
 
     # ---- install ----
 

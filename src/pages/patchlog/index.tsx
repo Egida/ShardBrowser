@@ -5,6 +5,7 @@ import { Topbar } from "../../shared/ui/Topbar";
 import Badge from "../../shared/ui/Badge";
 import { LockedIcon, StarOutlineIcon, ChevronDownIcon } from "../../shared/icons";
 import { withUtm } from "../../shared/lib/utils";
+import { useT } from "../../shared/i18n";
 import data from "./patchlog.json";
 
 /** The log is data, in patchlog.json; this module only draws it. */
@@ -34,11 +35,6 @@ const LATEST = RELEASES[0];
 
 /** "new" is an addition, anything else reads as a correction. */
 const tagColor = (tag: string) => (tag === "new" ? "success" : "primary");
-
-const SCOPE_LABEL: Record<string, string> = {
-  browser: "Browser",
-  launcher: "Launcher",
-};
 
 /** Inline markup, deliberately tiny: `code`, **strong**, *emphasis*. */
 function Rich({ text }: { text: string }) {
@@ -128,6 +124,7 @@ function ReleasePicker({
   value: Release;
   onChange: (r: Release) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
@@ -139,7 +136,7 @@ function ReleasePicker({
         <span>v{value.version}</span>
         {value === LATEST && (
           <Badge color="success" variant="filled" size="small">
-            latest
+            {t("patchlog.latestBadge")}
           </Badge>
         )}
         <span
@@ -184,6 +181,7 @@ function ReleasePicker({
 }
 
 function LockNotice() {
+  const t = useT();
   return (
     <div className="mt-2.5 flex flex-col gap-2 rounded-lg bg-warning-alpha-16 p-3 ring-1 ring-inset ring-warning-base/30">
       <div className="flex items-center gap-2 text-label-xs text-text-strong-950">
@@ -191,14 +189,13 @@ function LockNotice() {
           <LockedIcon className="size-[15px]" />
         </span>
         <span>
-          Ships at {data.starsRequired.toLocaleString("en-US")} stars on the repository
+          {t("patchlog.shipsAtStars", {
+            n: data.starsRequired.toLocaleString("en-US"),
+          })}
         </span>
       </div>
       <p className="m-0 text-paragraph-xs text-text-sub-600">
-        The code is in the tree behind a build flag. Released binaries are built with it
-        off, and the vocabulary is not compiled in either — a command name left in a
-        shipped binary is exactly the kind of string that gets found and matched against a
-        product.
+        {t("patchlog.lockExplainer")}
       </p>
       <div>
         <Button
@@ -210,7 +207,7 @@ function LockNotice() {
           <span className="mr-1.5 inline-grid place-items-center align-middle">
             <StarOutlineIcon className="size-[14px]" />
           </span>
-          Star the repository
+          {t("patchlog.starRepo")}
         </Button>
       </div>
     </div>
@@ -218,12 +215,15 @@ function LockNotice() {
 }
 
 function EntryCard({ entry }: { entry: Entry }): ReactNode {
+  const t = useT();
   return (
     <article className="rounded-xl bg-bg-white-0 p-4 ring-1 ring-inset ring-stroke-soft-200">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="m-0 text-label-sm text-text-strong-950">{entry.title}</h2>
         <span className="rounded-4 bg-bg-weak-50 px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.5px] text-text-soft-400">
-          {SCOPE_LABEL[entry.scope ?? "browser"]}
+          {entry.scope === "launcher"
+            ? t("patchlog.scopeLauncher")
+            : t("patchlog.scopeBrowser")}
         </span>
         {entry.tag && (
           <Badge color={tagColor(entry.tag)} variant="filled" size="small">
@@ -232,7 +232,7 @@ function EntryCard({ entry }: { entry: Entry }): ReactNode {
         )}
         {entry.locked && (
           <Badge color="warning" variant="filled" size="small">
-            locked
+            {t("patchlog.lockedBadge")}
           </Badge>
         )}
       </div>
@@ -248,22 +248,28 @@ function EntryCard({ entry }: { entry: Entry }): ReactNode {
 }
 
 export function PatchLogPage() {
+  const t = useT();
   const [release, setRelease] = useState<Release>(LATEST);
 
   return (
     <section className="flex flex-col">
-      <Topbar crumbs={["System", "Patch log"]} search="" onSearch={() => {}} />
+      <Topbar
+        crumbs={[t("patchlog.crumbSystem"), t("patchlog.crumbPatchLog")]}
+        search=""
+        onSearch={() => {}}
+      />
 
       <div className="mb-1.5 flex items-start justify-between gap-4">
-        <h1 className="m-0 text-title-h5 text-text-strong-950">Patch log</h1>
+        <h1 className="m-0 text-title-h5 text-text-strong-950">{t("patchlog.title")}</h1>
         <ReleasePicker value={release} onChange={setRelease} />
       </div>
 
       <p className="m-0 mb-3.5 max-w-[70ch] text-paragraph-xs text-text-soft-400">
-        What changed, and why. <strong>Browser</strong> entries live in the patched core
-        itself — a page cannot tell them from what a stock Chromium does.{" "}
-        <strong>Launcher</strong> entries are this app: what a profile is made of, and
-        what it starts with.
+        {t("patchlog.introPart1")}
+        <strong>{t("patchlog.introBrowserWord")}</strong>
+        {t("patchlog.introPart2")}
+        <strong>{t("patchlog.introLauncherWord")}</strong>
+        {t("patchlog.introPart3")}
       </p>
 
       <div className="mb-3 flex items-center gap-2.5">
@@ -272,7 +278,9 @@ export function PatchLogPage() {
         </span>
         <span className="h-px flex-1 bg-stroke-soft-200" />
         <span className="text-paragraph-xs text-text-soft-400">
-          {release.entries.length} {release.entries.length === 1 ? "change" : "changes"}
+          {release.entries.length === 1
+            ? t("patchlog.changeCountOne", { n: release.entries.length })
+            : t("patchlog.changeCountMany", { n: release.entries.length })}
         </span>
       </div>
 

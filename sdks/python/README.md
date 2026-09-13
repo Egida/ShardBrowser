@@ -145,6 +145,48 @@ Saved profiles never touch the bundled S3 library: templates stay read-only in
 `<cache>/fingerprints/*.json`, saved profiles live in `<cache>/profiles/<id>/`
 (holding `profile.json` + the browser's user-data-dir).
 
+## Human input and finger gestures
+
+`Motion` is the engine's own input domain: pointer trajectories that obey
+Fitts's law, key-by-key typing with log-normal gaps, and the gestures a cursor
+cannot make. It runs inside the browser process — nothing is injected into the
+page — and it does not appear in `/json/protocol`, so a page cannot discover it.
+
+```python
+from shardx import ShardX, Motion
+
+async with sdk.session(profile) as browser:
+    motion = await Motion.attach(browser)
+
+    # desktop profile
+    await motion.create_pointer(20, 20)
+    await motion.glide_to(640, 360, target_width=220)   # the field's real width
+    await motion.tap()
+    await motion.enter_text("hello there")
+    await motion.destroy_pointer()
+
+    # phone profile
+    await motion.touch_swipe(200, 600, 200, 200, flick=True)   # scroll and fling
+    await motion.touch_long_press(200, 300)                    # context menu
+    await motion.pinch(200, 400, 2)                            # zoom in
+    o = await motion.set_orientation(90)
+    # o → {'angle': 90, 'type': 'landscape-primary', 'screenWidth': 844, ...}
+```
+
+A profile that claims a touchscreen has no cursor, and the core enforces it
+both ways: the pointer commands are refused on such a profile, and the finger
+commands are refused on every other. There is no `touchScroll` and no fling
+command — gestures are built in the browser out of the touch stream, so a real
+swipe produces the scroll and the fling with the velocity the browser's own
+tracker fitted. `touch_drag` differs from `touch_swipe` in the wait before the
+travel: that wait is when a page's drag-and-drop starts, and a stroke that
+begins earlier is a scroll.
+
+`set_orientation` is physical and takes time — the sensors move first and the
+picture commits at the end, the order a handset produces. It returns once the
+new angle has reached the page, so `screen.width` read straight after is
+already the turned one.
+
 ## Anti-fingerprint noise
 
 Per-vector noise (canvas / WebGL / audio / DOMRect / sensors / fonts) is **off

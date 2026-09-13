@@ -9,6 +9,7 @@ import { SyncPanel } from "../widgets/SyncPanel";
 import { HelperPanel } from "../widgets/HelperPanel";
 import { FleetMonitor } from "../widgets/FleetMonitor";
 import { initAnalytics } from "../shared/lib/analytics";
+import { useLang } from "../shared/i18n";
 
 // The always-on-top panels are second Tauri windows on this same bundle,
 // addressed by hash — a 60px strip needs no vite entry of its own.
@@ -23,13 +24,23 @@ const fleet = panelParams.get("fleet");
 // would otherwise report a second user for one person.
 if (!panelGroup && !helperProfile && !fleet) void initAnalytics();
 
+// Most strings are translated as their element is created rather than by a
+// component that watches the language, so switching it has to build the tree
+// again. Keying on the language is what does that.
+function Root() {
+  const lang = useLang((s) => s.lang);
+  return (
+    <ThemeProvider>
+      {panelGroup ? <SyncPanel key={lang} group={panelGroup} />
+       : helperProfile ? <HelperPanel key={lang} profile={helperProfile} />
+       : fleet ? <FleetMonitor key={lang} />
+       : <App key={lang} />}
+    </ThemeProvider>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ThemeProvider>
-      {panelGroup ? <SyncPanel group={panelGroup} />
-       : helperProfile ? <HelperPanel profile={helperProfile} />
-       : fleet ? <FleetMonitor />
-       : <App />}
-    </ThemeProvider>
+    <Root />
   </React.StrictMode>,
 );

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { t } from "../../../shared/i18n";
 import type { ProxyEntry } from "../../proxy";
 import { applyProfileFilters, useProfile } from "./useProfile";
 
@@ -22,9 +23,10 @@ export function useVisibleProfiles() {
   const folder = useProfile((s) => s.folder);
   const filters = useProfile((s) => s.filters);
   const running = useProfile((s) => s.running);
+  const sort = useProfile((s) => s.sort);
   return useMemo(
-    () => applyProfileFilters(profiles, proxies, search, folder, filters, running),
-    [profiles, proxies, search, folder, filters, running],
+    () => applyProfileFilters(profiles, proxies, search, folder, filters, running, sort),
+    [profiles, proxies, search, folder, filters, running, sort],
   );
 }
 
@@ -67,7 +69,7 @@ export function useSyncBlockReason(): string {
     const picked = profiles.filter((p) => selected.has(p.id));
     const m = picked.filter((p) => p.mobile).length;
     if (m > 0 && m < picked.length) {
-      return `Mixed selection: ${m} mobile + ${picked.length - m} desktop. A sync group must be all-mobile or all-desktop.`;
+      return t("selectors.syncMixedSelection", { m, d: picked.length - m });
     }
     return "";
   }, [profiles, selected]);

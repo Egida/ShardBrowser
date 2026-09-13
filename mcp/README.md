@@ -66,7 +66,13 @@ MCP_HTTP_PORT=40326 SHARDX_API=http://127.0.0.1:40325 SHARDX_TOKEN=… node inde
 - `list_profiles`, `get_profile`, `create_profile`, `create_temporary_profile`,
   `edit_profile`, `delete_profile`
 - `new_fingerprint(platform?)`
-- `start_profile(id, headless?)` → returns the CDP endpoint,
+- `refresh_rate` on `create_profile`, `create_temporary_profile` and
+  `edit_profile` — how often the claimed display refreshes, in Hz. No web API
+  reports it; a page measures it by timing `requestAnimationFrame`, so leaving
+  it out is not neutral: the engine then claims 60, what most machines report,
+  rather than the host's own screen.
+- `start_profile(id, headless?)` → returns the CDP endpoint. The call waits up
+  to 30s for it; if it still has none, `cdp` is null and `cdp_error` says why.
   `stop_profile(id)`, `list_running`
 - `list_proxies`, `add_proxy`, `delete_proxy`
 - `list_extensions`, `add_extension(url | path)`, `delete_extension` — a Web
@@ -123,6 +129,12 @@ headless) if it isn't running; actions target the profile's *active* tab:
   `human_click(selector | x,y)`, `human_move(selector | x,y)`,
   `human_fill(selector, text, clear?)`, `human_type(text)`,
   `human_release_pointer`
+- Finger gestures (phone profiles only): `touch_tap(selector | x,y, tap_count?)`,
+  `touch_long_press(selector | x,y, hold_ms?)`,
+  `touch_swipe(selector | x,y, dx/dy | to_x/to_y, flick?)`,
+  `touch_drag(selector | x,y, to_selector | to_x/to_y, hold_ms?)`,
+  `touch_pinch(scale, selector | x,y, rotation?)`,
+  `rotate_screen(angle, turn_ms?)`
 - Capture: `browser_screenshot(full_page?)`,
   `browser_element_screenshot(selector)`, `browser_pdf` (headless),
   `browser_set_viewport(width, height)`
@@ -181,4 +193,44 @@ where you want it.
 These calls take **real time** — `human_fill` returns when the last key is
 up, and reports how long the move and the typing took. Budget for it the
 way you would for a person.
+
+### Phones
+
+A profile that claims a touchscreen has no cursor, and the core enforces
+that: it refuses `Motion.tap` and every other pointer command on one, and
+refuses the finger commands everywhere else. A phone that moves a cursor
+and hovers has contradicted itself before any check on the motion begins.
+
+You do not have to keep track of which you have. `human_click` becomes a
+tap on a phone profile — a long press when you asked for the right button,
+because that is the phone's context menu — and `human_fill` taps the field
+before typing. `human_move` is the one that refuses: hovering has no touch
+equivalent, and a tap in its place would be a different thing that looked
+like success.
+
+The `touch_*` tools are the gestures a cursor cannot make at all:
+
+```
+touch_swipe(profile_id, dy: -400)                  # scroll the page
+touch_swipe(profile_id, dy: -400, flick: true)     # ... and fling it
+touch_long_press(profile_id, ".card")              # context menu
+touch_drag(profile_id, ".card", to_selector: ".column-2")
+touch_pinch(profile_id, scale: 2)                  # zoom in
+rotate_screen(profile_id, angle: 90)
+```
+
+Each one places its own contacts, plays the whole gesture and lifts them.
+There is no touchScroll and no fling command on purpose: gestures are made
+in the browser out of the touch stream, so a real swipe produces the
+scroll and the fling with the velocity the browser's own tracker fitted.
+
+`touch_drag` differs from `touch_swipe` in one way that decides everything:
+the contact stays still until the browser's long-press timers have fired,
+which is when a page's drag-and-drop starts. A stroke that begins earlier
+is a scroll.
+
+`rotate_screen` is physical and takes time. The pose the sensors report
+starts moving first and the screen angle commits at the end, which is the
+order a handset produces. It answers once the new angle has reached the
+page, so `screen.width` read straight after is already the turned one.
 4. `stop_profile` when done (temporary profiles self-delete on close).

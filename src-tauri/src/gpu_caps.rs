@@ -87,9 +87,14 @@ pub fn cached() -> Option<HostGlCaps> {
         return None;
     }
     // Written before the WebGPU probe existed: re-ask rather than treat the
-    // silence as an answer.
-    if caps.webgpu.is_none() {
-        return None;
+    // silence as an answer.  An EMPTY list counts as silence too — a machine
+    // with a working GPU does not report zero adapter features, so that is a
+    // probe that could not ask, and caching it hid every preset behind a GPU
+    // mismatch until the engine version happened to change.
+    match caps.webgpu.as_ref() {
+        None => return None,
+        Some(v) if v.is_empty() => return None,
+        Some(_) => {}
     }
     // A bump can move ANGLE under us; a stale list would start rejecting
     // profiles that became fine, or accepting ones that stopped being.
@@ -215,6 +220,15 @@ pub async fn probe(force: bool) -> Result<HostGlCaps> {
         l.local_addr()?.port()
     };
 
+    // A page, not about:blank.  WebGPU is [SecureContext] and about:blank is
+    // an opaque origin, so navigator.gpu is simply not there and the probe
+    // recorded "this machine has no WebGPU adapter" -- which then stuck in the
+    // cache and made every preset show a GPU mismatch.  A file:// URL is
+    // potentially trustworthy, so the same probe answers with the real
+    // adapter.  WebGL never needed this; it has no secure-context rule.
+    let probe_page = scratch.join("probe.html");
+    std::fs::write(&probe_page, "<!doctype html><title>gl</title>")?;
+
     let mut cmd = tokio::process::Command::new(&binary);
     cmd.arg(format!("--remote-debugging-port={port}"))
         .arg(format!("--user-data-dir={}", scratch.display()))
@@ -225,7 +239,7 @@ pub async fn probe(force: bool) -> Result<HostGlCaps> {
         // not the one the user's profiles will run against.
         .arg("--window-position=-32000,-32000")
         .arg("--window-size=200,200")
-        .arg("about:blank");
+        .arg(format!("file://{}", probe_page.display()));
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;

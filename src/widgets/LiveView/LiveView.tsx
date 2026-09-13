@@ -14,6 +14,7 @@ import {
 } from "../../entities/automation";
 import { processKill } from "../../entities/profile";
 import { ActionMenu, type MenuAction } from "./ActionMenu";
+import { useT } from "../../shared/i18n";
 
 const MAX_W = 1280;
 const MAX_H = 800;
@@ -46,6 +47,7 @@ export function LiveView({
   recording,
   onRecording,
 }: Props) {
+  const t = useT();
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; target: Picked | null } | null>(null);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const meta = useRef<Frame | null>(null);
@@ -240,7 +242,7 @@ export function LiveView({
     return (
       <div className="flex h-full items-center justify-center rounded-12 bg-bg-weak-50 px-6 text-center ring-1 ring-inset ring-stroke-soft-200">
         <p className="m-0 text-paragraph-sm text-text-soft-400">
-          Pick a profile to see its window here.
+          {t("liveView.pickProfile")}
         </p>
       </div>
     );
@@ -255,7 +257,7 @@ export function LiveView({
             leftIcon={<CloseIcon className="size-4" />}
             onClick={stop}
           >
-            Stop
+            {t("liveView.stop")}
           </Button>
         ) : (
           <Button

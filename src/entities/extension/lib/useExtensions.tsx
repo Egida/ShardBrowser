@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "../../../shared/lib/toast";
 import { confirmModal } from "../../../shared/lib/confirm";
 import { storeBus } from "../../../shared/lib/storeBus";
+import { t } from "../../../shared/i18n";
 import { extensionDelete, extensionImport, extensionImportUrl, extensionList } from "../model/api";
 import type { ExtensionEntry } from "../model/types";
 
@@ -57,15 +58,15 @@ export const useExtensions = create<ExtensionStore>((set, get) => ({
       const added = await extensionImportUrl(url.trim());
       await get().reload();
       set({ linkOpen: false });
-      toast.ok(`Added "${added.name}"`);
-    } catch (e) { toast.err("Download failed: " + String(e)); }
+      toast.ok(t("useExtensions.addedNamed", { name: added.name }));
+    } catch (e) { toast.err(t("useExtensions.downloadFailed", { error: String(e) })); }
     finally { set({ busy: false }); }
   },
 
   importFiles: async () => {
     const picked = await open({
       multiple: true,
-      title: "Pick .crx or .zip extensions",
+      title: t("useExtensions.pickFilesTitle"),
       filters: [{ name: "Extension", extensions: ["crx", "zip"] }],
     });
     const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
@@ -74,34 +75,38 @@ export const useExtensions = create<ExtensionStore>((set, get) => ({
     try {
       const added = await extensionImport(paths as string[]);
       await get().reload();
-      toast.ok(`Added ${added.length} extension${added.length === 1 ? "" : "s"}`);
-    } catch (e) { toast.err("Import failed: " + String(e)); }
+      toast.ok(added.length === 1
+        ? t("useExtensions.addedCountOne", { n: added.length })
+        : t("useExtensions.addedCountMany", { n: added.length }));
+    } catch (e) { toast.err(t("useExtensions.importFilesFailed", { error: String(e) })); }
     finally { set({ busy: false }); }
   },
 
   importFolder: async () => {
-    const dir = await open({ directory: true, title: "Pick an unpacked extension folder" });
+    const dir = await open({ directory: true, title: t("useExtensions.pickFolderTitle") });
     if (typeof dir !== "string") return;
     set({ busy: true });
     try {
       const added = await extensionImport([dir]);
       await get().reload();
-      toast.ok(added.length > 0 ? `Added "${added[0].name}"` : "Nothing added");
-    } catch (e) { toast.err("Import failed: " + String(e)); }
+      toast.ok(added.length > 0
+        ? t("useExtensions.addedFolderNamed", { name: added[0].name })
+        : t("useExtensions.nothingAdded"));
+    } catch (e) { toast.err(t("useExtensions.importFolderFailed", { error: String(e) })); }
     finally { set({ busy: false }); }
   },
 
   remove: async (e) => {
     const ok = await confirmModal({
-      title: "Remove extension",
-      message: `Remove "${e.name}" from the library? Profiles using it stop loading it on their next launch.`,
+      title: t("useExtensions.removeTitle"),
+      message: t("useExtensions.removeMessage", { name: e.name }),
       danger: true,
     });
     if (ok !== true) return;
     try {
       await extensionDelete(e.id);
       await get().reload();
-      toast.ok("Extension removed");
+      toast.ok(t("useExtensions.removed"));
     } catch (err) { toast.err(String(err)); }
   },
 }));

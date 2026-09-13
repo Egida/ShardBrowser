@@ -4,19 +4,25 @@ import { FilterIcon } from "../../../shared/icons";
 import { CSSelect } from "../../../shared/ui/CSSelect";
 import { CountryFlag } from "../../../shared/ui/CountryFlag";
 import { useProfile, useProfileCountries } from "../../../entities/profile";
+import { useT } from "../../../shared/i18n";
+import type { ProfileSort } from "../../../entities/profile";
 
 /** Status / proxy country / bound-or-direct, behind one button with a count. */
 export function ProfileFilterBar() {
+  const t = useT();
   const filters = useProfile((s) => s.filters);
   const setFilters = useProfile((s) => s.setFilters);
   const clearFilters = useProfile((s) => s.clearFilters);
   const countries = useProfileCountries();
+  const sort = useProfile((s) => s.sort);
+  const setSort = useProfile((s) => s.setSort);
   const [open, setOpen] = useState(false);
 
   const active =
     (filters.status !== "all" ? 1 : 0) +
     (filters.country ? 1 : 0) +
-    (filters.proxy !== "all" ? 1 : 0);
+    (filters.proxy !== "all" ? 1 : 0) +
+    (sort !== "added" ? 1 : 0);
 
   return (
     <div className="relative">
@@ -27,7 +33,7 @@ export function ProfileFilterBar() {
         leftIcon={<FilterIcon className="size-4" />}
         onClick={() => setOpen((v) => !v)}
       >
-        {active > 0 ? `Filters · ${active}` : "Filters"}
+        {active > 0 ? t("profileFilterBar.filtersCount", { n: active }) : t("profileFilterBar.filters")}
       </Button>
 
       {open && (
@@ -35,34 +41,48 @@ export function ProfileFilterBar() {
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 z-20 mt-1.5 flex w-[260px] flex-col gap-3 rounded-xl bg-bg-white-0 p-3 shadow-[var(--shadow-md)] ring-1 ring-stroke-soft-200">
             <CSSelect
-              title="Status"
-              value={filters.status}
-              onChange={(v) => setFilters({ status: v as typeof filters.status })}
+              title={t("profileFilterBar.orderTitle")}
+              value={sort}
+              onChange={(v) => setSort(v as ProfileSort)}
               options={[
-                { value: "all", label: "Any status" },
-                { value: "running", label: "Running" },
-                { value: "idle", label: "Idle" },
+                { value: "added", label: t("profileFilterBar.orderAdded") },
+                { value: "name-asc", label: t("profileFilterBar.orderNameAsc") },
+                { value: "name-desc", label: t("profileFilterBar.orderNameDesc") },
+                { value: "created-desc", label: t("profileFilterBar.orderNewest") },
+                { value: "created-asc", label: t("profileFilterBar.orderOldest") },
+                { value: "launched-desc", label: t("profileFilterBar.orderLaunched") },
+                { value: "runtime-desc", label: t("profileFilterBar.orderRuntime") },
               ]}
             />
             <CSSelect
-              title="Connection"
+              title={t("profileFilterBar.statusTitle")}
+              value={filters.status}
+              onChange={(v) => setFilters({ status: v as typeof filters.status })}
+              options={[
+                { value: "all", label: t("profileFilterBar.statusAny") },
+                { value: "running", label: t("profileFilterBar.statusRunning") },
+                { value: "idle", label: t("profileFilterBar.statusIdle") },
+              ]}
+            />
+            <CSSelect
+              title={t("profileFilterBar.connectionTitle")}
               value={filters.proxy}
               onChange={(v) => setFilters({ proxy: v as typeof filters.proxy })}
               options={[
-                { value: "all", label: "Any connection" },
-                { value: "bound", label: "Through a proxy" },
-                { value: "direct", label: "Direct" },
+                { value: "all", label: t("profileFilterBar.connectionAny") },
+                { value: "bound", label: t("profileFilterBar.connectionBound") },
+                { value: "direct", label: t("profileFilterBar.connectionDirect") },
               ]}
             />
             <label className="flex flex-col gap-1">
               <CSSelect
-                title="Proxy country"
+                title={t("profileFilterBar.countryTitle")}
                 value={filters.country}
                 onChange={(v) => setFilters({ country: v })}
                 isSearchable={countries.length > 8}
-                searchPlaceholder="Search countries…"
+                searchPlaceholder={t("profileFilterBar.countrySearch")}
                 options={[
-                  { value: "", label: "Any country" },
+                  { value: "", label: t("profileFilterBar.countryAny") },
                   ...countries.map((c) => ({ value: c, label: c })),
                 ]}
               />
@@ -88,8 +108,13 @@ export function ProfileFilterBar() {
               )}
             </label>
             {active > 0 && (
-              <Button variant="neutral" mode="ghost" size="2xsmall" onClick={clearFilters}>
-                Clear filters
+              <Button
+                variant="neutral"
+                mode="ghost"
+                size="2xsmall"
+                onClick={() => { clearFilters(); setSort("added"); }}
+              >
+                {t("profileFilterBar.clear")}
               </Button>
             )}
           </div>

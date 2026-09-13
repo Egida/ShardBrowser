@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "../i18n";
 
 export type MSOption = { value: string; label: string };
 
@@ -13,7 +14,7 @@ export function MultiSelect({
   loading,
   disabled,
   placeholder,
-  emptyLabel = "any",
+  emptyLabel: emptyLabelProp,
   single,
 }: {
   value: string;
@@ -26,9 +27,11 @@ export function MultiSelect({
   /** One choice only — picking replaces the value and closes. */
   single?: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const box = useRef<HTMLDivElement | null>(null);
+  const emptyLabel = emptyLabelProp ?? t("multiSelect.anyLabel");
 
   const chosen = useMemo(
     () => value.split(",").map((s) => s.trim()).filter(Boolean),
@@ -75,7 +78,7 @@ export function MultiSelect({
           <span className="truncate">
             {chosen.length <= 3
               ? chosen.map(labelOf).join(", ")
-              : `${chosen.length} selected`}
+              : t("multiSelect.selectedCount", { n: chosen.length })}
           </span>
         )}
         <span className="ml-auto shrink-0 text-text-soft-400">▾</span>
@@ -87,7 +90,7 @@ export function MultiSelect({
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search…"
+            placeholder={t("multiSelect.searchPlaceholder")}
             className="h-8 w-full border-b border-stroke-soft-200 bg-bg-white-0 px-2 text-paragraph-sm text-text-strong-950 outline-none placeholder:text-text-soft-400"
           />
           <div className="max-h-52 overflow-y-auto py-1">
@@ -99,9 +102,9 @@ export function MultiSelect({
               <span className={`size-3.5 rounded-4 ring-1 ${chosen.length === 0 ? "bg-primary-base ring-primary-base" : "ring-stroke-soft-200"}`} />
               <span className="text-text-sub-600">{emptyLabel}</span>
             </button>
-            {loading && <div className="px-2 py-2 text-paragraph-xs text-text-soft-400">Loading…</div>}
+            {loading && <div className="px-2 py-2 text-paragraph-xs text-text-soft-400">{t("multiSelect.loading")}</div>}
             {!loading && shown.length === 0 && (
-              <div className="px-2 py-2 text-paragraph-xs text-text-soft-400">Nothing matches.</div>
+              <div className="px-2 py-2 text-paragraph-xs text-text-soft-400">{t("multiSelect.noMatches")}</div>
             )}
             {shown.map((o) => {
               const on = chosen.includes(o.value);

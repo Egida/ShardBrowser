@@ -3,6 +3,7 @@ import { Checkbox, Input, cn } from "@proxyshard/shardx-ui-kit";
 import { ChevronDownIcon, CloseIcon } from "../../../shared/icons";
 import { useExtensions, type ExtensionEntry } from "../../../entities/extension";
 import { useNav } from "../../../shared/model/navigation";
+import { useT } from "../../../shared/i18n";
 
 function Icon({ e, className }: { e: ExtensionEntry; className?: string }) {
   return e.icon ? (
@@ -27,6 +28,7 @@ export function ExtensionPicker({
   value: string[];
   onChange: (v: string[]) => void;
 }) {
+  const t = useT();
   const items = useExtensions((s) => s.items);
   const init = useExtensions((s) => s.init);
   const go = useNav((s) => s.setSection);
@@ -53,13 +55,13 @@ export function ExtensionPicker({
   if (items.length === 0) {
     return (
       <p className="m-0 text-paragraph-xs text-text-soft-400">
-        No extensions in the library yet.{" "}
+        {t("extensionPicker.emptyLibrary")}{" "}
         <button
           type="button"
           className="text-primary-base hover:underline"
           onClick={() => go("extensions")}
         >
-          Add one →
+          {t("extensionPicker.addOne")}
         </button>
       </p>
     );
@@ -79,7 +81,7 @@ export function ExtensionPicker({
               <span className="truncate">{e.name}</span>
               <button
                 type="button"
-                title="Remove"
+                title={t("extensionPicker.removeTitle")}
                 onClick={() => toggle(e.id)}
                 className="grid size-4 shrink-0 place-items-center rounded-4 text-primary-base/70 hover:bg-primary-alpha-16 hover:text-primary-base"
               >
@@ -96,7 +98,9 @@ export function ExtensionPicker({
         onClick={() => setOpen((v) => !v)}
         className="flex w-fit items-center gap-1.5 rounded-6 px-2 py-1 text-paragraph-xs text-text-sub-600 ring-1 ring-inset ring-stroke-soft-200 transition-colors hover:bg-bg-weak-50"
       >
-        {picked.length > 0 ? `Change · ${picked.length} of ${items.length}` : "Choose extensions"}
+        {picked.length > 0
+          ? t("extensionPicker.changeCount", { n: picked.length, total: items.length })
+          : t("extensionPicker.choose")}
         <ChevronDownIcon className={cn("size-3.5 transition-transform", open && "rotate-180")} />
       </button>
 
@@ -107,7 +111,7 @@ export function ExtensionPicker({
               inputSize="small"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search extensions…"
+              placeholder={t("extensionPicker.searchPlaceholder")}
             />
           )}
           <div className="flex max-h-[176px] flex-col overflow-y-auto scrollbar">
@@ -131,7 +135,7 @@ export function ExtensionPicker({
             ))}
             {shown.length === 0 && (
               <div className="px-1.5 py-3 text-center text-paragraph-xs text-text-soft-400">
-                Nothing matches that.
+                {t("extensionPicker.noMatches")}
               </div>
             )}
           </div>

@@ -127,6 +127,10 @@ pub struct StoredMeta {
     /// Blending in and playing video pull apart here, so the operator chooses.
     #[serde(default, skip_serializing_if = "is_false")]
     pub android_media: bool,
+    /// Bumped by every write. An editor sends back the number it opened, so a
+    /// save landing on top of someone else's is refused instead of silent.
+    #[serde(default)]
+    pub rev: u64,
 }
 
 /// The screen the profile claims, as (width, height).
@@ -335,6 +339,11 @@ fn clear_noise_seeds(config: &mut serde_json::Map<String, serde_json::Value>) {
     }
 }
 
+/// The `rev` currently on disk, or 0 when there is no such profile yet.
+pub fn current_rev(id: &str) -> u64 {
+    load_raw(id).map(|p| p.meta.rev).unwrap_or(0)
+}
+
 pub fn save_raw(stored: &mut StoredProfile) -> Result<()> {
     let _guard = file_lock();
     save_raw_locked(stored)
@@ -366,7 +375,20 @@ fn save_raw_locked(stored: &mut StoredProfile) -> Result<()> {
             if stored.meta.total_runtime_ms == 0 {
                 stored.meta.total_runtime_ms = existing.meta.total_runtime_ms;
             }
+            // Only a change to the profile's own content moves the counter.
+            // Launching a profile writes last_launched_at, and closing it
+            // writes the runtime total — neither is something an open editor
+            // is in conflict with, and bumping for them refused the operator's
+            // own save with a message blaming an API nobody had called.
+            stored.meta.rev = if stored.config == existing.config {
+                existing.meta.rev
+            } else {
+                existing.meta.rev.wrapping_add(1)
+            };
         }
+    }
+    if is_new {
+        stored.meta.rev = 1;
     }
     if stored.meta.created_at.is_none() {
         stored.meta.created_at = Some(chrono_now_iso());

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "@proxyshard/shardx-ui-kit";
 import { toast } from "../../shared/lib/toast";
+import { useT } from "../../shared/i18n";
 import {
   trafficMount,
   trafficClear,
@@ -73,6 +74,7 @@ function RuleCard({
   onChange: (r: TrafficRule) => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   const m = rule.match;
   const a = rule.action;
   const regex = m.urlRegex !== undefined || m.hostRegex !== undefined;
@@ -91,25 +93,25 @@ function RuleCard({
     <div className="flex flex-col gap-2 rounded-8 bg-bg-weak-50 p-2.5">
       {/* match */}
       <div className="flex items-center gap-2">
-        <span className="text-label-sm text-text-strong-950">When</span>
+        <span className="text-label-sm text-text-strong-950">{t("trafficPanel.whenLabel")}</span>
         <select className={FIELD + " w-auto"} value={m.method ?? ""} onChange={(e) => setMatch({ method: e.target.value || undefined })}>
-          {METHODS.map((x) => <option key={x} value={x}>{x || "any method"}</option>)}
+          {METHODS.map((x) => <option key={x} value={x}>{x || t("trafficPanel.anyMethod")}</option>)}
         </select>
         <select className={FIELD + " w-auto"} value={m.resource ?? ""} onChange={(e) => setMatch({ resource: e.target.value || undefined })}>
-          {KINDS.map((x) => <option key={x} value={x}>{x || "any type"}</option>)}
+          {KINDS.map((x) => <option key={x} value={x}>{x || t("trafficPanel.anyType")}</option>)}
         </select>
         <label className="ml-auto flex items-center gap-1 text-paragraph-xs text-text-soft-400">
-          <input type="checkbox" checked={regex} onChange={(e) => toggleRegex(e.target.checked)} /> regex
+          <input type="checkbox" checked={regex} onChange={(e) => toggleRegex(e.target.checked)} /> {t("trafficPanel.regexToggle")}
         </label>
       </div>
       <div className="grid grid-cols-1 gap-2">
         <label className="flex flex-col gap-1">
-          <span className={LABEL}>{regex ? "url regex" : "url glob (* ?)"}</span>
+          <span className={LABEL}>{regex ? t("trafficPanel.urlRegexLabel") : t("trafficPanel.urlGlobLabel")}</span>
           <input className={FIELD} value={(regex ? m.urlRegex : m.url) ?? ""} placeholder={regex ? "^https://.*/api/" : "*://*.example.com/*"}
             onChange={(e) => setMatch(regex ? { urlRegex: e.target.value } : { url: e.target.value })} />
         </label>
         <label className="flex flex-col gap-1">
-          <span className={LABEL}>{regex ? "host regex" : "host glob"}</span>
+          <span className={LABEL}>{regex ? t("trafficPanel.hostRegexLabel") : t("trafficPanel.hostGlobLabel")}</span>
           <input className={FIELD} value={(regex ? m.hostRegex : m.host) ?? ""} placeholder={regex ? "" : "*.example.com"}
             onChange={(e) => setMatch(regex ? { hostRegex: e.target.value } : { host: e.target.value })} />
         </label>
@@ -117,18 +119,18 @@ function RuleCard({
 
       {/* action */}
       <div className="flex items-center gap-2">
-        <span className="text-label-sm text-text-strong-950">Do</span>
+        <span className="text-label-sm text-text-strong-950">{t("trafficPanel.doLabel")}</span>
         <select className={FIELD + " w-auto"} value={a.type} onChange={(e) => setAction({ type: e.target.value as TrafficAction["type"] })}>
           {TYPES.map((x) => <option key={x} value={x}>{x}</option>)}
         </select>
         <label className="ml-auto flex items-center gap-1 text-paragraph-xs text-text-soft-400">
-          <input type="checkbox" checked={!!rule.await} onChange={(e) => onChange({ ...rule, await: e.target.checked })} /> await (ask me)
+          <input type="checkbox" checked={!!rule.await} onChange={(e) => onChange({ ...rule, await: e.target.checked })} /> {t("trafficPanel.awaitToggle")}
         </label>
       </div>
 
       {a.type === "block" && (
         <label className="flex flex-col gap-1">
-          <span className={LABEL}>block reason (net error)</span>
+          <span className={LABEL}>{t("trafficPanel.blockReasonLabel")}</span>
           <input className={FIELD} value={a.blockReason ?? ""} placeholder="BlockedByClient / AccessDenied / …"
             onChange={(e) => setAction({ blockReason: e.target.value || undefined })} />
         </label>
@@ -136,7 +138,7 @@ function RuleCard({
 
       {a.type === "redirect" && (
         <label className="flex flex-col gap-1">
-          <span className={LABEL}>redirect to (real 302)</span>
+          <span className={LABEL}>{t("trafficPanel.redirectToLabel")}</span>
           <input className={FIELD} value={a.setUrl ?? ""} placeholder="https://…"
             onChange={(e) => setAction({ setUrl: e.target.value })} />
         </label>
@@ -146,17 +148,17 @@ function RuleCard({
         <div className="flex flex-col gap-2">
           <div className="grid grid-cols-1 gap-2">
             <label className="flex flex-col gap-1">
-              <span className={LABEL}>status</span>
+              <span className={LABEL}>{t("trafficPanel.statusLabel")}</span>
               <input className={FIELD} type="number" value={a.status ?? 200} onChange={(e) => setAction({ status: Number(e.target.value) })} />
             </label>
             <label className="flex flex-col gap-1">
-              <span className={LABEL}>response headers</span>
+              <span className={LABEL}>{t("trafficPanel.responseHeadersLabel")}</span>
               <textarea className={AREA} value={headersToText(a.responseHeaders)} placeholder="Content-Type: application/json"
                 onChange={(e) => setAction({ responseHeaders: textToHeaders(e.target.value) })} />
             </label>
           </div>
           <label className="flex flex-col gap-1">
-            <span className={LABEL}>response body</span>
+            <span className={LABEL}>{t("trafficPanel.responseBodyLabel")}</span>
             <textarea className={AREA} value={a.responseBody ?? ""} onChange={(e) => setAction({ responseBody: e.target.value })} />
           </label>
         </div>
@@ -164,54 +166,54 @@ function RuleCard({
 
       {(a.type === "modify" || a.type === "continue") && (
         <div className="flex flex-col gap-2">
-          <div className="text-subheading-2xs text-text-soft-400">request</div>
+          <div className="text-subheading-2xs text-text-soft-400">{t("trafficPanel.requestSection")}</div>
           <div className="grid grid-cols-1 gap-2">
             <label className="flex flex-col gap-1">
-              <span className={LABEL}>set method</span>
+              <span className={LABEL}>{t("trafficPanel.setMethodLabel")}</span>
               <input className={FIELD} value={a.setMethod ?? ""} onChange={(e) => setAction({ setMethod: e.target.value || undefined })} />
             </label>
             <label className="flex flex-col gap-1">
-              <span className={LABEL}>rewrite url (transparent)</span>
+              <span className={LABEL}>{t("trafficPanel.rewriteUrlLabel")}</span>
               <input className={FIELD} value={a.setUrl ?? ""} onChange={(e) => setAction({ setUrl: e.target.value || undefined })} />
             </label>
           </div>
           <label className="flex flex-col gap-1">
-            <span className={LABEL}>set request headers</span>
+            <span className={LABEL}>{t("trafficPanel.setRequestHeadersLabel")}</span>
             <textarea className={AREA} value={headersToText(a.setHeaders)} onChange={(e) => setAction({ setHeaders: textToHeaders(e.target.value) })} />
           </label>
           <div className="grid grid-cols-1 gap-2">
             <label className="flex flex-col gap-1">
-              <span className={LABEL}>remove request headers (comma)</span>
+              <span className={LABEL}>{t("trafficPanel.removeRequestHeadersLabel")}</span>
               <input className={FIELD} value={(a.removeHeaders ?? []).join(", ")} onChange={(e) => setAction({ removeHeaders: csvToList(e.target.value) })} />
             </label>
             <label className="flex flex-col gap-1">
-              <span className={LABEL}>delay ms</span>
+              <span className={LABEL}>{t("trafficPanel.delayMsLabel")}</span>
               <input className={FIELD} type="number" value={a.delayMs ?? 0} onChange={(e) => setAction({ delayMs: Number(e.target.value) || undefined })} />
             </label>
           </div>
-          <div className="text-subheading-2xs text-text-soft-400">response</div>
+          <div className="text-subheading-2xs text-text-soft-400">{t("trafficPanel.responseSection")}</div>
           <label className="flex flex-col gap-1">
-            <span className={LABEL}>set response headers</span>
+            <span className={LABEL}>{t("trafficPanel.setResponseHeadersLabel")}</span>
             <textarea className={AREA} value={headersToText(a.setResponseHeaders)} onChange={(e) => setAction({ setResponseHeaders: textToHeaders(e.target.value) })} />
           </label>
           <div className="grid grid-cols-1 gap-2">
             <label className="flex flex-col gap-1">
-              <span className={LABEL}>remove response headers (comma)</span>
+              <span className={LABEL}>{t("trafficPanel.removeResponseHeadersLabel")}</span>
               <input className={FIELD} value={(a.removeResponseHeaders ?? []).join(", ")} onChange={(e) => setAction({ removeResponseHeaders: csvToList(e.target.value) })} />
             </label>
             <label className="flex flex-col gap-1">
-              <span className={LABEL}>set status</span>
+              <span className={LABEL}>{t("trafficPanel.setStatusLabel")}</span>
               <input className={FIELD} type="number" value={a.setStatus ?? ""} onChange={(e) => setAction({ setStatus: e.target.value ? Number(e.target.value) : undefined })} />
             </label>
           </div>
           <label className="flex flex-col gap-1">
-            <span className={LABEL}>replace response body</span>
+            <span className={LABEL}>{t("trafficPanel.replaceResponseBodyLabel")}</span>
             <textarea className={AREA} value={a.setResponseBody ?? ""} onChange={(e) => setAction({ setResponseBody: e.target.value || undefined })} />
           </label>
         </div>
       )}
 
-      <button className="self-start text-paragraph-xs text-error-base hover:underline" onClick={onRemove}>remove rule</button>
+      <button className="self-start text-paragraph-xs text-error-base hover:underline" onClick={onRemove}>{t("trafficPanel.removeRule")}</button>
     </div>
   );
 }
@@ -230,6 +232,7 @@ export function TrafficPanel({
   profileId: string | null;
   live: boolean;
 }) {
+  const t = useT();
   const [mounted, setMounted] = useState<string | null>(null);
   const [paused, setPaused] = useState<TrafficPaused[]>([]);
   const [observing, setObserving] = useState(false);
@@ -309,32 +312,32 @@ export function TrafficPanel({
       ...(o.method ? { method: o.method } : {}),
       ...(o.resource && o.resource !== "any" ? { resource: o.resource } : {}),
     };
-    let label = "Traffic";
+    let label = t("trafficPanel.stepLabelTraffic");
     const params: Record<string, unknown> = { ...base };
     if (kind === "traffic.block") {
-      label = "Block";
+      label = t("trafficPanel.stepLabelBlock");
     } else if (kind === "traffic.redirect") {
       params.to = "";
-      label = "Redirect";
+      label = t("trafficPanel.stepLabelRedirect");
     } else if (kind === "traffic.setHeaders") {
       if (o.requestHeaders) params.headers = recordToText(o.requestHeaders);
       if (o.requestBody) params.setBody = o.requestBody;
-      label = "Rewrite request";
+      label = t("trafficPanel.stepLabelRewriteRequest");
     } else if (kind === "traffic.editResponse") {
       if (o.status) params.status = o.status;
       if (o.responseHeaders) params.responseHeaders = recordToText(o.responseHeaders);
       if (o.responseBody != null) params.responseBody = o.responseBody;
-      label = "Edit response";
+      label = t("trafficPanel.stepLabelEditResponse");
     } else if (kind === "traffic.fulfill") {
       params.status = o.status ?? 200;
       if (o.responseHeaders) params.responseHeaders = recordToText(o.responseHeaders);
       params.responseBody = o.responseBody ?? "";
-      label = "Fake response";
+      label = t("trafficPanel.stepLabelFakeResponse");
     }
-    if (!onAddStep) { toast.err("cannot add a step here"); return; }
+    if (!onAddStep) { toast.err(t("trafficPanel.cannotAddStep")); return; }
     onAddStep(kind, params, `${label} ${hostOf(o.url)}`);
     setMenu(null);
-    toast.ok("added a step to the project");
+    toast.ok(t("trafficPanel.stepAdded"));
   };
 
   // Builds a live rule ({match, action}) from a request — for the test-only
@@ -366,11 +369,11 @@ export function TrafficPanel({
 
   const mountLiveFromRequest = async (o: Observed, type: TrafficAction["type"]) => {
     setMenu(null);
-    if (!profileId) { toast.err("no live profile to mount to"); return; }
+    if (!profileId) { toast.err(t("trafficPanel.noLiveProfile")); return; }
     try {
       await trafficMount(profileId, [ruleFromRequest(o, type)]);
       setMounted("live");
-      toast.ok("mounted live (test only — not saved)");
+      toast.ok(t("trafficPanel.mountedLiveTest"));
     } catch (e) { toast.err(String(e)); }
   };
 
@@ -387,12 +390,12 @@ export function TrafficPanel({
       if (mounted) await trafficClear(profileId).catch(() => {});
       const r = await trafficMount(profileId, rules);
       setMounted(r.ruleSetId);
-      toast.ok(`mounted ${rules.length} rule(s)`);
+      toast.ok(t("trafficPanel.mountedRules", { n: rules.length }));
     } catch (e) { toast.err(String(e)); }
   };
   const clear = async () => {
     if (!profileId) return;
-    try { await trafficClear(profileId); setMounted(null); toast.ok("cleared"); }
+    try { await trafficClear(profileId); setMounted(null); toast.ok(t("trafficPanel.clearedToast")); }
     catch (e) { toast.err(String(e)); }
   };
 
@@ -407,28 +410,28 @@ export function TrafficPanel({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-label-sm text-text-strong-950">Interception rules</div>
+        <div className="text-label-sm text-text-strong-950">{t("trafficPanel.title")}</div>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          {mounted && <span className="text-paragraph-xs text-success-base">mounted</span>}
-          <Button size="xsmall" mode="stroke" onClick={add}>Add rule</Button>
+          {mounted && <span className="text-paragraph-xs text-success-base">{t("trafficPanel.mountedBadge")}</span>}
+          <Button size="xsmall" mode="stroke" onClick={add}>{t("trafficPanel.addRule")}</Button>
           <Button size="xsmall" mode={observing ? "filled" : "stroke"} disabled={!live} onClick={toggleObserve}>
-            {observing ? "Observing…" : "Observe"}
+            {observing ? t("trafficPanel.observing") : t("trafficPanel.observe")}
           </Button>
-          <Button size="xsmall" disabled={!live} onClick={mount}>Mount to live</Button>
-          {mounted && <Button size="xsmall" mode="stroke" disabled={!live} onClick={clear}>Clear</Button>}
+          <Button size="xsmall" disabled={!live} onClick={mount}>{t("trafficPanel.mountToLive")}</Button>
+          {mounted && <Button size="xsmall" mode="stroke" disabled={!live} onClick={clear}>{t("trafficPanel.clearButton")}</Button>}
         </div>
       </div>
       <p className="m-0 text-paragraph-xs text-text-soft-400">
-        These rules are saved in the project. “Mount to live” also applies them to the running browser now.
+        {t("trafficPanel.savedHint")}
       </p>
       {!live && (
         <div className="rounded-8 bg-warning-alpha-16 px-2 py-1 text-[11px] text-warning-base">
-          Start the live session to mount rules. In a run they mount automatically before the first navigation.
+          {t("trafficPanel.liveRequiredHint")}
         </div>
       )}
 
       {rules.length === 0 && (
-        <p className="m-0 py-6 text-center text-paragraph-xs text-text-soft-400">No rules yet.</p>
+        <p className="m-0 py-6 text-center text-paragraph-xs text-text-soft-400">{t("trafficPanel.noRules")}</p>
       )}
       {rules.map((r, i) => (
         <RuleCard key={i} rule={r} onChange={(nr) => update(i, nr)} onRemove={() => remove(i)} />
@@ -438,15 +441,15 @@ export function TrafficPanel({
       {(observing || observed.length > 0) && (
         <>
           <div className="mt-2 flex items-center gap-2">
-            <div className="text-label-sm text-text-strong-950">Requests</div>
+            <div className="text-label-sm text-text-strong-950">{t("trafficPanel.requestsTitle")}</div>
             {observed.length > 0 && (
               <>
                 <span className="text-paragraph-xs text-text-soft-400">{observed.length}</span>
-                <button className="ml-auto text-paragraph-xs text-text-soft-400 hover:text-text-strong-950" onClick={() => { setObserved([]); setSelectedId(null); }}>clear</button>
+                <button className="ml-auto text-paragraph-xs text-text-soft-400 hover:text-text-strong-950" onClick={() => { setObserved([]); setSelectedId(null); }}>{t("trafficPanel.clearRequests")}</button>
               </>
             )}
           </div>
-          <p className="m-0 text-paragraph-xs text-text-soft-400">Right-click a request to add a rule from it.</p>
+          <p className="m-0 text-paragraph-xs text-text-soft-400">{t("trafficPanel.rightClickHint")}</p>
           <div className="flex max-h-[220px] flex-col gap-0.5 overflow-y-auto">
             {observed.map((o) => (
               <div
@@ -469,14 +472,14 @@ export function TrafficPanel({
                 <span className="font-mono text-text-soft-400">{selected.method}</span>
                 {selected.status ? <span className="rounded-6 bg-bg-white-0 px-1 text-text-strong-950">{selected.status}</span> : <span className="text-text-soft-400">…</span>}
                 <span className="text-[10px] text-text-soft-400">{selected.resource}</span>
-                <button className="ml-auto text-text-soft-400 hover:text-text-strong-950" onClick={() => setSelectedId(null)}>close</button>
+                <button className="ml-auto text-text-soft-400 hover:text-text-strong-950" onClick={() => setSelectedId(null)}>{t("trafficPanel.closeDetails")}</button>
               </div>
               <div className="break-all text-text-strong-950">{selected.url}</div>
 
               {/* What the page sent. */}
               {((selected.requestHeaders && Object.keys(selected.requestHeaders).length > 0) || selected.requestBody) && (
                 <div className="flex flex-col gap-1">
-                  <div className="text-subheading-2xs uppercase tracking-wide text-text-soft-400">Request sent</div>
+                  <div className="text-subheading-2xs uppercase tracking-wide text-text-soft-400">{t("trafficPanel.requestSent")}</div>
                   {selected.requestHeaders && Object.keys(selected.requestHeaders).length > 0 && (
                     <div className="font-mono text-[10px] text-text-sub-600">
                       {Object.entries(selected.requestHeaders).map(([k, v]) => (
@@ -492,43 +495,43 @@ export function TrafficPanel({
 
               {/* The real response that came back — read-only, as received. */}
               <div className="flex flex-col gap-1">
-                <div className="text-subheading-2xs uppercase tracking-wide text-text-soft-400">Response received</div>
+                <div className="text-subheading-2xs uppercase tracking-wide text-text-soft-400">{t("trafficPanel.responseReceived")}</div>
                 {selected.responseHeaders ? (
                   <>
                     <div className="font-mono text-[10px] text-text-sub-600">
-                      <div className="break-all"><span className="text-text-soft-400">status:</span> {selected.status ?? "?"}</div>
+                      <div className="break-all"><span className="text-text-soft-400">{t("trafficPanel.statusLineLabel")}</span> {selected.status ?? "?"}</div>
                       {Object.entries(selected.responseHeaders).map(([k, v]) => (
                         <div key={k} className="break-all"><span className="text-text-soft-400">{k}:</span> {v}</div>
                       ))}
                     </div>
                     <div className="text-subheading-2xs text-text-soft-400">
-                      Body{selected.responseBodyTruncated ? " (truncated)" : ""}
+                      {t("trafficPanel.bodyLabel")}{selected.responseBodyTruncated ? t("trafficPanel.truncatedSuffix") : ""}
                     </div>
-                    <pre className="m-0 max-h-40 overflow-auto rounded-6 bg-bg-white-0 p-1.5 font-mono text-[10px] text-text-strong-950">{selected.responseBody || "(empty body)"}</pre>
+                    <pre className="m-0 max-h-40 overflow-auto rounded-6 bg-bg-white-0 p-1.5 font-mono text-[10px] text-text-strong-950">{selected.responseBody || t("trafficPanel.emptyBody")}</pre>
                   </>
                 ) : selected.capture === false ? (
-                  <div className="text-text-soft-400">not captured — {selected.resource} is streamed untouched (only documents, scripts, styles and XHR are captured).</div>
+                  <div className="text-text-soft-400">{t("trafficPanel.notCaptured", { kind: selected.resource })}</div>
                 ) : (
-                  <div className="text-text-soft-400">waiting for response…</div>
+                  <div className="text-text-soft-400">{t("trafficPanel.waitingResponse")}</div>
                 )}
               </div>
 
               {/* Seed a rule from this exact request/response, prefilled. */}
               <div className="flex flex-col gap-1.5 border-t border-stroke-soft-200 pt-1.5">
                 <div className="flex flex-wrap items-center gap-1">
-                  <span className="mr-0.5 text-[10px] uppercase tracking-wide text-text-soft-400">Add step to project</span>
+                  <span className="mr-0.5 text-[10px] uppercase tracking-wide text-text-soft-400">{t("trafficPanel.addStepToProject")}</span>
                   {([
-                    ["traffic.block", "block"],
-                    ["traffic.redirect", "redirect"],
-                    ["traffic.setHeaders", "rewrite req"],
-                    ["traffic.editResponse", "edit resp"],
-                    ["traffic.fulfill", "fake resp"],
+                    ["traffic.block", t("trafficPanel.quickBlock")],
+                    ["traffic.redirect", t("trafficPanel.quickRedirect")],
+                    ["traffic.setHeaders", t("trafficPanel.quickRewriteRequest")],
+                    ["traffic.editResponse", t("trafficPanel.quickEditResponse")],
+                    ["traffic.fulfill", t("trafficPanel.quickFakeResponse")],
                   ] as const).map(([kind, label]) => (
                     <Button key={kind} size="xsmall" mode="stroke" disabled={!onAddStep} onClick={() => addStepFromRequest(selected, kind)}>{label}</Button>
                   ))}
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
-                  <span className="mr-0.5 text-[10px] uppercase tracking-wide text-text-soft-400">Mount live (test)</span>
+                  <span className="mr-0.5 text-[10px] uppercase tracking-wide text-text-soft-400">{t("trafficPanel.mountLiveTest")}</span>
                   {(["modify", "fulfill", "block"] as const).map((t) => (
                     <Button key={"l-" + t} size="xsmall" disabled={!live} onClick={() => mountLiveFromRequest(selected, t)}>{t}</Button>
                   ))}
@@ -541,12 +544,12 @@ export function TrafficPanel({
 
       {/* request browser (await) */}
       <div className="mt-2 flex items-center gap-2">
-        <div className="text-label-sm text-text-strong-950">Paused requests</div>
+        <div className="text-label-sm text-text-strong-950">{t("trafficPanel.pausedTitle")}</div>
         {paused.length > 0 && <span className="text-paragraph-xs text-text-soft-400">{paused.length}</span>}
       </div>
       {paused.length === 0 && (
         <p className="m-0 py-4 text-center text-paragraph-xs text-text-soft-400">
-          Requests matching an <b>await</b> rule appear here to answer.
+          {t("trafficPanel.pausedEmptyPart1")}<b>{t("trafficPanel.pausedEmptyAwait")}</b>{t("trafficPanel.pausedEmptyPart2")}
         </p>
       )}
       {paused.map((p) => (
@@ -555,9 +558,9 @@ export function TrafficPanel({
             <span className="font-mono text-text-soft-400">{p.request.method}</span> {p.request.url}
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="xsmall" onClick={() => resolve(p)}>Continue</Button>
-            <Button size="xsmall" mode="stroke" onClick={() => resolve(p, { type: "block", blockReason: "BlockedByClient" })}>Block</Button>
-            <Button size="xsmall" mode="stroke" onClick={() => resolve(p, { type: "fulfill", status: 200, responseBody: "" })}>Fulfill 200</Button>
+            <Button size="xsmall" onClick={() => resolve(p)}>{t("trafficPanel.continueButton")}</Button>
+            <Button size="xsmall" mode="stroke" onClick={() => resolve(p, { type: "block", blockReason: "BlockedByClient" })}>{t("trafficPanel.blockButton")}</Button>
+            <Button size="xsmall" mode="stroke" onClick={() => resolve(p, { type: "fulfill", status: 200, responseBody: "" })}>{t("trafficPanel.fulfill200Button")}</Button>
           </div>
         </div>
       ))}
@@ -569,13 +572,13 @@ export function TrafficPanel({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="truncate px-3 py-1 text-[10px] text-text-soft-400" title={menu.item.url}>{menu.item.url}</div>
-          <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-text-soft-400">Add step to project</div>
+          <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-text-soft-400">{t("trafficPanel.menuAddStepToProject")}</div>
           {([
-            ["traffic.block", "block"],
-            ["traffic.redirect", "redirect"],
-            ["traffic.setHeaders", "rewrite request"],
-            ["traffic.editResponse", "edit response"],
-            ["traffic.fulfill", "fake response"],
+            ["traffic.block", t("trafficPanel.menuBlock")],
+            ["traffic.redirect", t("trafficPanel.menuRedirect")],
+            ["traffic.setHeaders", t("trafficPanel.menuRewriteRequest")],
+            ["traffic.editResponse", t("trafficPanel.menuEditResponse")],
+            ["traffic.fulfill", t("trafficPanel.menuFakeResponse")],
           ] as const).map(([kind, label]) => (
             <button
               key={"p-" + kind}
@@ -586,7 +589,7 @@ export function TrafficPanel({
               {label}
             </button>
           ))}
-          <div className="mt-1 border-t border-stroke-soft-200 px-3 py-1 text-[10px] uppercase tracking-wide text-text-soft-400">Mount live (test)</div>
+          <div className="mt-1 border-t border-stroke-soft-200 px-3 py-1 text-[10px] uppercase tracking-wide text-text-soft-400">{t("trafficPanel.menuMountLiveTest")}</div>
           {(["modify", "fulfill", "block"] as const).map((t) => (
             <button
               key={"m-" + t}

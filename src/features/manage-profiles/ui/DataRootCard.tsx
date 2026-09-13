@@ -6,22 +6,26 @@ import { Button, ProgressBar } from "@proxyshard/shardx-ui-kit";
 import { FolderIcon } from "../../../shared/icons";
 import { toast } from "../../../shared/model/toast";
 import { confirmModal } from "../../../shared/lib/confirm";
+import { t, useT } from "../../../shared/i18n";
 import {
   dataRootGet, dataRootMigrate,
   type DataRootInfo, type MigrationProgress,
 } from "../../../entities/settings";
 
+// Getters: the map is built at import time, so the language has to be read
+// when the phase is shown, not here.
 const PHASE_LABEL: Record<MigrationProgress["phase"], string> = {
-  scan: "Looking at what there is to move…",
-  copy: "Copying",
-  verify: "Checking every file arrived…",
-  cleanup: "Removing the old copy…",
-  done: "Done",
+  get scan() { return t("dataRootCard.phaseScan"); },
+  get copy() { return t("dataRootCard.phaseCopy"); },
+  get verify() { return t("dataRootCard.phaseVerify"); },
+  get cleanup() { return t("dataRootCard.phaseCleanup"); },
+  get done() { return t("dataRootCard.phaseDone"); },
 };
 
 /** Where profiles, user-data, extensions and the trash live. The move copies,
  *  verifies, then deletes; the backend refuses launches while it runs. */
 export function DataRootCard() {
+  const t = useT();
   const [info, setInfo] = useState<DataRootInfo | null>(null);
   const [progress, setProgress] = useState<MigrationProgress | null>(null);
 
@@ -40,25 +44,21 @@ export function DataRootCard() {
   const running = progress !== null;
 
   const move = async () => {
-    const dir = await open({ directory: true, title: "Where should profiles live?" });
+    const dir = await open({ directory: true, title: t("dataRootCard.pickFolderTitle") });
     if (typeof dir !== "string") return;
     const ok = await confirmModal({
-      title: "Move profile data",
-      message:
-        `Move profiles, user-data, extensions and the trash to "${dir}"?\n\n` +
-        "Every file is copied and checked before anything is deleted, so a " +
-        "failure leaves the current folder untouched. Profiles cannot be " +
-        "launched until it finishes.",
+      title: t("dataRootCard.confirmTitle"),
+      message: t("dataRootCard.confirmMessage", { dir }),
       buttons: [
-        { label: "Cancel", value: false },
-        { label: "Move", value: true, primary: true },
+        { label: t("dataRootCard.cancel"), value: false },
+        { label: t("dataRootCard.moveAction"), value: true, primary: true },
       ],
     });
     if (ok !== true) return;
     setProgress({ phase: "scan", done: 0, total: 0, percent: 0, current: "" });
     try {
       const n = await dataRootMigrate(dir);
-      toast.ok(`Moved ${n} file${n === 1 ? "" : "s"}`);
+      toast.ok(n === 1 ? t("dataRootCard.movedOne") : t("dataRootCard.movedMany", { n }));
     } catch (e) {
       toast.err(String(e));
     } finally {
@@ -70,15 +70,12 @@ export function DataRootCard() {
   return (
     <div className="flex flex-col gap-3">
       <p className="m-0 text-paragraph-xs text-text-soft-400">
-        Profiles, their user-data dirs, the extension library and the trash. The
-        small config files stay in the app's own folder so the launcher can always
-        find where the data went. Pick a folder on any disk — an external drive
-        mounted read-only is rejected before anything is copied.
+        {t("dataRootCard.intro")}
       </p>
 
       <label className="flex flex-col gap-1.5">
         <span className="text-label-xs text-text-sub-600">
-          Current location{info && !info.custom && <span className="text-text-soft-400"> · default</span>}
+          {t("dataRootCard.currentLocation")}{info && !info.custom && <span className="text-text-soft-400">{t("dataRootCard.defaultSuffix")}</span>}
         </span>
         <div className="flex items-center gap-2">
           <span className="mono min-w-0 flex-1 truncate rounded-8 bg-bg-weak-50 px-[11px] py-[9px] text-paragraph-xs text-text-sub-600 ring-1 ring-inset ring-stroke-soft-200">
@@ -86,16 +83,16 @@ export function DataRootCard() {
           </span>
           <Button
             variant="neutral" mode="stroke" size="small" disabled={!info || running}
-            onClick={() => info && openPath(info.path).catch(() => toast.err("Could not open that folder"))}
+            onClick={() => info && openPath(info.path).catch(() => toast.err(t("dataRootCard.openFailed")))}
           >
-            Reveal
+            {t("dataRootCard.reveal")}
           </Button>
           <Button
             variant="primary" mode="stroke" size="small" disabled={running}
             leftIcon={<FolderIcon className="size-4" />}
             onClick={move}
           >
-            Change…
+            {t("dataRootCard.change")}
           </Button>
         </div>
       </label>

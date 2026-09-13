@@ -25,6 +25,8 @@ export type ProfileMeta = {
 
 export type ProfileForm = {
   id: string;
+  /** The file's version when the editor opened it; a save carries it back. */
+  rev: number;
   name: string;
   notes: string;
   proxy_id: string | null;
@@ -34,6 +36,16 @@ export type ProfileForm = {
   extensions: string[];
   /// Answer media questions the Android way. Phone profiles only.
   android_media: boolean;
+  /// How often the claimed display refreshes, in Hz. A page reads it by
+  /// timing requestAnimationFrame; the browser can only slow frames down, so
+  /// a claim above this machine's own panel quietly runs at the panel's rate.
+  refresh_rate: number;
+  /// Claimed screen, `0` = whatever the fingerprint template says.
+  screen_w: number;
+  screen_h: number;
+  /// Cookies file picked in the editor, imported once the profile exists.
+  /// Editor state, not part of the fingerprint — `toStored` does not write it.
+  cookies_file: string;
 
   gpu_preset_id: string;
   user_agent: string;

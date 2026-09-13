@@ -6,6 +6,7 @@ import { toast } from "../../../shared/model/toast";
 import { proxyBulkParse, proxySave, type ProxyEntry } from "../../../entities/proxy";
 import { useProfile } from "../../../entities/profile";
 import { storeBus } from "../../../shared/lib/storeBus";
+import { useT } from "../../../shared/i18n";
 
 const label = (p: ProxyEntry) =>
   p.name && p.name !== `${p.host}:${p.port}`
@@ -52,11 +53,13 @@ export function ProxySelect({
   proxies: ProxyEntry[];
   onChange: (id: string | null) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [q, setQ] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const coords = useAnchoredCoords(open, trigger);
+  const directLabel = t("proxySelect.directConnection");
 
   const close = () => { setOpen(false); setCreating(false); setQ(""); };
   useEffect(() => {
@@ -101,7 +104,7 @@ export function ProxySelect({
         )}
       >
         <AddIcon className="size-4 shrink-0" />
-        Create new proxy
+        {t("proxySelect.createNew")}
       </button>
 
       {creating ? (
@@ -118,14 +121,14 @@ export function ProxySelect({
                 inputSize="small"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search by name, host, country…"
+                placeholder={t("proxySelect.searchPlaceholder")}
               />
             </div>
           )}
           <ul className="overflow-auto p-1.5 scrollbar" style={{ maxHeight: coords?.maxHeight }}>
             <li>
               <Row
-                text="— direct connection —"
+                text={directLabel}
                 muted
                 active={!value}
                 onClick={() => { onChange(null); close(); }}
@@ -142,7 +145,7 @@ export function ProxySelect({
             ))}
             {shown.length === 0 && (
               <li className="px-2.5 py-4 text-center text-paragraph-sm text-text-soft-400">
-                No proxy matches that.
+                {t("proxySelect.noMatches")}
               </li>
             )}
           </ul>
@@ -160,7 +163,7 @@ export function ProxySelect({
         className="flex h-9 w-full items-center gap-2 rounded-lg bg-bg-white-0 px-2.5 text-left text-paragraph-sm text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200 transition-colors hover:bg-bg-weak-50"
       >
         <span className={cn("min-w-0 flex-1 truncate", !selected && "text-text-soft-400")}>
-          {selected ? label(selected) : "— direct connection —"}
+          {selected ? label(selected) : directLabel}
         </span>
         <ChevronDownIcon
           className={cn("size-4 shrink-0 text-icon-soft-400 transition-transform", open && "rotate-180")}
@@ -204,6 +207,7 @@ function CreatePanel({ onCancel, onCreated }: {
   onCancel: () => void;
   onCreated: (p: ProxyEntry) => void;
 }) {
+  const t = useT();
   const [line, setLine] = useState("");
   const [parsed, setParsed] = useState<ProxyEntry | null>(null);
   const [busy, setBusy] = useState(false);
@@ -249,7 +253,7 @@ function CreatePanel({ onCancel, onCreated }: {
         onKeyDown={(e) => {
           if (e.key === "Enter" && parsed && !busy) { e.preventDefault(); void save(); }
         }}
-        placeholder="host:port:user:pass #facebook"
+        placeholder={t("proxySelect.linePlaceholder")}
       />
       <div className="min-h-[34px] rounded-8 bg-bg-weak-50 px-2.5 py-1.5 text-paragraph-xs ring-1 ring-inset ring-stroke-soft-200">
         {parsed ? (
@@ -262,21 +266,21 @@ function CreatePanel({ onCancel, onCreated }: {
         ) : (
           <span className="text-text-soft-400">
             {line.trim()
-              ? "Not a proxy line — check the host and port."
-              : "Paste a line: host:port, host:port:user:pass, user:pass@host:port, or a socks5:// URL."}
+              ? t("proxySelect.parseFailed")
+              : t("proxySelect.pasteHint")}
           </span>
         )}
       </div>
       <div className="flex justify-end gap-2">
         <Button variant="neutral" mode="ghost" size="2xsmall" onClick={onCancel}>
-          Cancel
+          {t("proxySelect.cancel")}
         </Button>
         <Button
           variant="primary" mode="filled" size="2xsmall"
           disabled={!parsed || busy} isLoading={busy}
           onClick={save}
         >
-          Add and bind
+          {t("proxySelect.addAndBind")}
         </Button>
       </div>
     </div>

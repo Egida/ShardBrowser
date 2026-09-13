@@ -29,8 +29,10 @@ import type { Picked } from "../../entities/automation";
 import { LiveView } from "../../widgets/LiveView";
 import { TrafficPanel } from "../../widgets/TrafficPanel";
 import type { TrafficRule } from "../../entities/automation";
+import { useT } from "../../shared/i18n";
 
 export function ProjectEditor() {
+  const t = useT();
   const project = useAutomation((s) => s.current());
   const open = useAutomation((s) => s.open);
   const patch = useAutomation((s) => s.patch);
@@ -138,7 +140,11 @@ export function ProjectEditor() {
           // Kept on the step so the panel can say WHY it fell back.
           _tried: target?.tried ?? [],
         };
-    const what = target?.label ? `"${target.label}"` : target?.tag ? `<${target.tag}>` : "point";
+    const what = target?.label
+      ? `"${target.label}"`
+      : target?.tag
+        ? `<${target.tag}>`
+        : t("projectEditor.point");
     await addBlock(project.id, newBlock(a.kind, params, `${a.label.replace(/…$/, "")} ${what}`));
   };
 
@@ -162,12 +168,16 @@ export function ProjectEditor() {
         : String(extra?.key ?? "");
     const name =
       kind === "press"
-        ? `Press ${what}`
+        ? t("projectEditor.stepPress", { what })
         : kind === "scroll"
-          ? `Scroll ${Number(extra?.deltaY ?? 0) >= 0 ? "down" : "up"}`
+          ? Number(extra?.deltaY ?? 0) >= 0
+            ? t("projectEditor.stepScrollDown")
+            : t("projectEditor.stepScrollUp")
           : kind === "goto"
-            ? `Open ${String(extra?.url ?? "").slice(0, 48)}`
-            : `Click ${what || "point"}`;
+            ? t("projectEditor.stepOpen", { url: String(extra?.url ?? "").slice(0, 48) })
+            : what
+              ? t("projectEditor.stepClick", { what })
+              : t("projectEditor.stepClickPoint");
     await addBlock(project.id, newBlock(kind, params, name));
   };
 
@@ -232,7 +242,13 @@ export function ProjectEditor() {
       a.click();
       URL.revokeObjectURL(a.href);
       const n = bundle.needs.length;
-      toast.ok(n > 0 ? `Exported · ${n} secret${n === 1 ? "" : "s"} left blank` : "Exported");
+      toast.ok(
+        n === 0
+          ? t("projectEditor.exported")
+          : n === 1
+            ? t("projectEditor.exportedOneSecret")
+            : t("projectEditor.exportedSecrets", { n }),
+      );
     } catch (e) { toast.err(String(e)); }
   };
 
@@ -274,7 +290,11 @@ export function ProjectEditor() {
 
   return (
     <section className="flex h-full min-h-0 flex-col">
-      <Topbar crumbs={["Workspace", "Automation", project.name]} search="" onSearch={() => {}} />
+      <Topbar
+        crumbs={[t("projectEditor.crumbWorkspace"), t("projectEditor.crumbAutomation"), project.name]}
+        search=""
+        onSearch={() => {}}
+      />
 
       <div className="mb-3.5 flex items-end justify-between gap-4">
         <div className="min-w-0">
@@ -285,7 +305,7 @@ export function ProjectEditor() {
           />
           <input
             className="mt-1 w-full max-w-[70ch] rounded-8 bg-transparent px-1 py-0.5 text-paragraph-xs text-text-soft-400 outline-none ring-1 ring-inset ring-transparent hover:ring-stroke-soft-200 focus:ring-primary-base"
-            placeholder="Notes"
+            placeholder={t("projectEditor.notesPlaceholder")}
             value={project.notes}
             onChange={(e) => patch(project.id, { notes: e.target.value })}
           />
@@ -295,13 +315,13 @@ export function ProjectEditor() {
           leftIcon={<CloseIcon className="size-4" />}
           onClick={() => open(null)}
         >
-          Close
+          {t("projectEditor.close")}
         </Button>
       </div>
 
       <div className="mb-3.5 flex flex-wrap items-end gap-4 rounded-12 bg-bg-white-0 px-4 py-3 shadow-[var(--shadow-xs)] ring-1 ring-inset ring-stroke-soft-200">
         <label className="flex flex-col gap-1">
-          <span className="text-subheading-2xs text-text-soft-400">Threads</span>
+          <span className="text-subheading-2xs text-text-soft-400">{t("projectEditor.threads")}</span>
           <input
             type="number" min={1} max={64}
             className="h-8 w-[90px] rounded-8 bg-bg-white-0 px-2 text-paragraph-sm text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200 outline-none focus:ring-primary-base"
@@ -310,7 +330,7 @@ export function ProjectEditor() {
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-subheading-2xs text-text-soft-400">Loops</span>
+          <span className="text-subheading-2xs text-text-soft-400">{t("projectEditor.loops")}</span>
           <input
             type="number" min={0}
             className="h-8 w-[90px] rounded-8 bg-bg-white-0 px-2 text-paragraph-sm text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200 outline-none focus:ring-primary-base"
@@ -320,7 +340,7 @@ export function ProjectEditor() {
         </label>
         {project.run.loops === 0 && (
           <label className="flex flex-col gap-1">
-            <span className="text-subheading-2xs text-text-soft-400">Hours</span>
+            <span className="text-subheading-2xs text-text-soft-400">{t("projectEditor.hours")}</span>
             <input
               type="number" min={0} step={0.5}
               className="h-8 w-[90px] rounded-8 bg-bg-white-0 px-2 text-paragraph-sm text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200 outline-none focus:ring-primary-base"
@@ -330,7 +350,7 @@ export function ProjectEditor() {
           </label>
         )}
         <p className="m-0 max-w-[38ch] text-paragraph-xs text-text-soft-400">
-          Loops 0 means keep going for the number of hours instead.
+          {t("projectEditor.loopsHelp")}
         </p>
 
         <div className="ml-auto flex items-center gap-2">
@@ -340,7 +360,7 @@ export function ProjectEditor() {
               leftIcon={<StopIcon className="size-4" />}
               onClick={() => automationRunStop(project.id)}
             >
-              Stop
+              {t("projectEditor.stop")}
             </Button>
           ) : (
             <Button
@@ -350,21 +370,21 @@ export function ProjectEditor() {
                 automationRun(project.id).catch((e) => toast.err(String(e)))
               }
             >
-              Run
+              {t("projectEditor.run")}
             </Button>
           )}
           <Button
             variant="neutral" mode="stroke" size="small"
             onClick={() => automationFleetWindow()}
           >
-            Fleet
+            {t("projectEditor.fleet")}
           </Button>
           <Button
             variant="neutral" mode="stroke" size="small"
             leftIcon={<DownloadIcon className="size-4" />}
             onClick={exportProject}
           >
-            Export
+            {t("projectEditor.export")}
           </Button>
         </div>
       </div>
@@ -383,7 +403,9 @@ export function ProjectEditor() {
         <div className="flex min-h-0 flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-subheading-2xs text-text-soft-400">
-              {project.blocks.length} step{project.blocks.length === 1 ? "" : "s"}
+              {project.blocks.length === 1
+                ? t("projectEditor.stepCountOne")
+                : t("projectEditor.stepCountMany", { n: project.blocks.length })}
             </span>
             <div className="flex items-center gap-1.5">
               <Button
@@ -391,13 +413,13 @@ export function ProjectEditor() {
                 leftIcon={<AddIcon className="size-4" />}
                 onClick={() => { setPickAt(null); setPicking(true); }}
               >
-                Add step
+                {t("projectEditor.addStep")}
               </Button>
               <Button
                 variant="neutral" mode="ghost" size="xsmall"
                 onClick={() => setShowLive((v) => !v)}
               >
-                {showLive ? "Hide browser" : "Show browser"}
+                {showLive ? t("projectEditor.hideBrowser") : t("projectEditor.showBrowser")}
               </Button>
             </div>
           </div>
@@ -428,19 +450,19 @@ export function ProjectEditor() {
 
         <div className="flex min-h-0 flex-col gap-2 overflow-y-auto rounded-12 bg-bg-white-0 p-3 shadow-[var(--shadow-xs)] ring-1 ring-inset ring-stroke-soft-200">
           <div className="flex gap-1">
-            {(["step", "traffic"] as const).map((t) => (
+            {(["step", "traffic"] as const).map((tab) => (
               <button
-                key={t}
-                onClick={() => setRightTab(t)}
+                key={tab}
+                onClick={() => setRightTab(tab)}
                 className={
                   "rounded-8 px-2 py-1 text-label-sm " +
-                  (rightTab === t
+                  (rightTab === tab
                     ? "bg-bg-weak-50 text-text-strong-950"
                     : "text-text-soft-400 hover:text-text-strong-950")
                 }
               >
-                {t === "step" ? "Step" : "Traffic"}
-                {t === "traffic" && (project.rules?.length ? ` (${project.rules.length})` : "")}
+                {tab === "step" ? t("projectEditor.tabStep") : t("projectEditor.tabTraffic")}
+                {tab === "traffic" && (project.rules?.length ? ` (${project.rules.length})` : "")}
               </button>
             ))}
           </div>
@@ -474,15 +496,20 @@ export function ProjectEditor() {
           {run && (
             <div className="mt-auto border-t border-stroke-soft-200 pt-2">
               <div className="mb-1 flex items-center justify-between">
-                <span className="text-subheading-2xs text-text-soft-400">Run log</span>
+                <span className="text-subheading-2xs text-text-soft-400">{t("projectEditor.runLog")}</span>
                 <span className="text-paragraph-xs text-text-soft-400">
-                  {run.workers.filter((w) => w.status === "running").length} running ·{" "}
-                  {run.workers.filter((w) => w.status === "failed").length} failed
+                  {t("projectEditor.runningCount", {
+                    n: run.workers.filter((w) => w.status === "running").length,
+                  })}{" "}
+                  ·{" "}
+                  {t("projectEditor.failedCount", {
+                    n: run.workers.filter((w) => w.status === "failed").length,
+                  })}
                 </span>
               </div>
               <div className="max-h-[150px] overflow-y-auto font-mono text-[10px] text-text-sub-600">
                 {run.log.length === 0 ? (
-                  <div className="text-text-soft-400">Nothing logged yet.</div>
+                  <div className="text-text-soft-400">{t("projectEditor.logEmpty")}</div>
                 ) : (
                   run.log.slice(-60).map((l, i) => <div key={i}>{l}</div>)
                 )}
@@ -498,7 +525,7 @@ export function ProjectEditor() {
               value={target ?? ""}
               onChange={(e) => setTarget(e.target.value || null)}
             >
-              <option value="">Choose a profile…</option>
+              <option value="">{t("projectEditor.chooseProfile")}</option>
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -515,7 +542,7 @@ export function ProjectEditor() {
             {/* Console: run JS in the page through the core's isolated world. */}
             <div className="flex flex-col gap-1 rounded-12 bg-bg-white-0 p-2 ring-1 ring-inset ring-stroke-soft-200">
               <div className="flex items-center gap-2">
-                <span className="text-subheading-2xs text-text-soft-400">Console</span>
+                <span className="text-subheading-2xs text-text-soft-400">{t("projectEditor.console")}</span>
                 <select
                   className="h-7 rounded-8 bg-bg-white-0 px-1.5 text-paragraph-xs text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200 outline-none focus:ring-primary-base"
                   value={consoleWorld}
@@ -524,7 +551,9 @@ export function ProjectEditor() {
                   <option value="isolated">isolated</option>
                   <option value="main">main</option>
                 </select>
-                <Button size="xsmall" className="ml-auto" disabled={!target} onClick={runConsole}>Run</Button>
+                <Button size="xsmall" className="ml-auto" disabled={!target} onClick={runConsole}>
+                  {t("projectEditor.consoleRun")}
+                </Button>
               </div>
               <input
                 className="h-8 w-full rounded-8 bg-bg-white-0 px-2 font-mono text-[11px] text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200 outline-none placeholder:text-text-soft-400 focus:ring-primary-base"

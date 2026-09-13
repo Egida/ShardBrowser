@@ -103,7 +103,7 @@ Blink, V8 and the network stack. ShardX does not rely on JavaScript
 injection, so the same values are visible in frames, workers, developer
 tools and headless sessions.
 
-The launcher includes 236 ready-made device profiles for Mac M1 to M5,
+The launcher includes 220 ready-made device profiles for Mac M1 to M5,
 Windows desktops and laptops with NVIDIA RTX or GTX, Intel, and AMD
 GPUs, Linux workstations and Android phones. You can bind a SOCKS5 or HTTP
 proxy to each profile.
@@ -203,7 +203,7 @@ iframes, web workers, developer tools and headless mode.
   Chrome sessions ("Continue where you left off" without the
   crash-restore bubble), bulk import, folder / tag organization, pin
   to top, clone.
-* **Fingerprint library:** 236 starter profiles shipped via CDN
+* **Fingerprint library:** 220 starter profiles shipped via CDN
   (36 mac-arm64 / 131 windows-x64 / 19 linux-x64 / 50 android). Profile
   editor randomizes CPU / RAM / platform-version when you change the
   GPU, and the OS selector includes Android.
@@ -363,7 +363,7 @@ the browser engine.
 | QUIC / HTTP-3 over SOCKS5                                     | ✅ stable end to end via UDP relay | ⚠️ unstable, falls back to TCP or drops mid-session | ❌ disabled when proxy is set |
 | WebRTC over SOCKS5 (no real-IP leak via STUN)                 | ✅ proxy UDP relay or synth candidates | ⚠️ same UDP relay path, same instability | ⚠️ disable-only            |
 | Consistency of generated profiles                             | ✅ coherent device (GPU, CPU, RAM, UA and fonts) | ❌ frequent contradictions (Win UA + Mac GPU, mobile UA + desktop screen, etc.) | ⚠️ varies |
-| Bundled fingerprint library                                   | 236 profiles from real-device samples, phones included | ❌ random generator, may combine a Windows UA with a Mac GPU or a mobile UA with a desktop screen | catalog (subscription) |
+| Bundled fingerprint library                                   | 220 profiles from real-device samples, phones included | ❌ random generator, may combine a Windows UA with a Mac GPU or a mobile UA with a desktop screen | catalog (subscription) |
 | Mobile profiles (touch input, sensors, phone fonts)           | ✅ the browser behaves like a phone, not only answers like one | ❌ none | ⚠️ UA and screen only |
 | Synchronised windows                                          | ✅ one window drives, the rest repeat in their own profiles | ❌ none | ⚠️ paid add-on where offered |
 | Built-in automation                                           | ✅ visual projects, recording, fleet runs, WASM modules, local API + MCP | ❌ external scripts only | ⚠️ varies, usually paid |
@@ -487,7 +487,7 @@ bulk import. Select *Test* to run a TCP check, UDP_ASSOCIATE probe and
 IP geolocation lookup. Open *Profiles*, select a profile, choose *Bind
 proxy* and then select *Start*. The launcher handles the following tasks:
 
-* downloading the engine + 236 starter profiles on first
+* downloading the engine + 220 starter profiles on first
   launch, with subsequent requests cached by ETag.
 * per-profile `user-data-dir` so cookies / cache / extensions stay
   isolated.

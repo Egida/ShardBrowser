@@ -4,7 +4,7 @@ Self-contained Node/TypeScript SDK for the **ShardX anti-detect
 browser** by the [ProxyShard](https://proxyshard.com?utm_source=shardx&utm_medium=referral&utm_campaign=shardx-launcher) team.
 
 Does **not** depend on the desktop launcher. On first use it downloads
-the patched Chromium 152 engine, Widevine CDM, and the 170-profile
+the patched Chromium 152 engine, Widevine CDM, and the 220-profile
 fingerprint library from our CDN into a local cache, then launches
 isolated browser sessions on demand.
 
@@ -340,7 +340,7 @@ with `cdpUrl`, `geo`, `proxyUdpMs`, `quicEnabled`, `webrtcMode`,
 ~/.cache/shardx-sdk/                         (linux)
 ├── manifest.json             ← etag cache
 ├── ShardX-Mac-arm64/         ← extracted engine
-├── fingerprints/             ← 170 bundled .json templates (read-only)
+├── fingerprints/             ← 220 bundled .json templates (read-only)
 └── profiles/<id>/            ← saved profile (createProfile) + its state
     ├── profile.json          ← the frozen fingerprint config
     └── …                     ← user-data-dir: cookies, IndexedDB, cache

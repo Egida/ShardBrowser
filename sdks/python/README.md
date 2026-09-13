@@ -5,7 +5,7 @@ Self-contained Python SDK for the **ShardX anti-detect browser** by the
 
 This package does **not** depend on the desktop launcher. On first use
 it downloads the patched Chromium 152 engine, Widevine CDM, and the
-170-profile fingerprint library from our CDN into a local cache, then
+220-profile fingerprint library from our CDN into a local cache, then
 launches isolated browser sessions on demand.
 
 Driven by [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright-python)
@@ -322,7 +322,7 @@ with `cdp_url`, `geo`, `proxy_udp_ms`, `quic_enabled`, `webrtc_mode`,
 ├── manifest.json             ← etag cache for browser/widevine/fingerprints
 ├── ShardX-Mac-arm64/         ← extracted engine
 │   └── ShardX.app/…
-├── fingerprints/             ← 170 bundled .json profiles
+├── fingerprints/             ← 220 bundled .json profiles
 │   ├── win-rtx4060.json
 │   └── …
 └── profiles/                 ← saved profiles (create_profile) + their state
